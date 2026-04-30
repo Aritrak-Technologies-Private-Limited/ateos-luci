@@ -389,7 +389,7 @@ header > .contactbar {
 	align-items: center;
 	gap: 1.4rem;
 	min-height: 2rem;
-	padding: 0 .9rem 0 7.2rem;
+	padding: 0 .9rem 0 2rem;
 	color: var(--contactbar-color);
 	background: var(--contactbar-bg);
 	font-size: .86rem;
@@ -456,6 +456,7 @@ header > .fill {
 }
 
 header > .fill > .container {
+	position: relative;
 	margin-top: 0;
 	padding: .45rem 1rem .35rem 1rem;
 	-webkit-user-select: none;
@@ -490,14 +491,14 @@ header > .fill > .container > .brand {
 
 header > .fill > .container > .status {
 	position: absolute;
-	top: 25%;
+	top: .85rem;
 	right: 1em;
 	float: right;
 }
 
 header > .fill > .container > .status > * {
 	position: relative;
-	top: .2rem;
+	top: 0;
 	float: left;
 	margin-left: .3rem;
 	cursor: pointer;
