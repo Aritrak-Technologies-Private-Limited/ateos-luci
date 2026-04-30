@@ -44,24 +44,14 @@ return baseclass.extend({
 		const ul1 = a.parentNode;
 		const ul2 = a.nextElementSibling;
 
-		document.querySelectorAll('li.slide.active').forEach(function(li) {
-			if (li !== a.parentNode || li == ul1) {
-				li.classList.remove('active');
-				li.childNodes[0].classList.remove('active');
-			}
-
-			if (li == ul1)
-				return;
-		});
-
 		if (!ul2)
 			return;
 
 		if (ul2.parentNode.offsetLeft + ul2.offsetWidth <= ul1.offsetLeft + ul1.offsetWidth)
 			ul2.classList.add('align-left');
 
-		ul1.classList.add('active');
-		a.classList.add('active');
+		ul1.classList.toggle('active');
+		a.classList.toggle('active');
 		a.blur();
 
 		ev.preventDefault();
