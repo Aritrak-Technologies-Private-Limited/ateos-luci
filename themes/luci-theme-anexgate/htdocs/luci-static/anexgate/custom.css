@@ -32,8 +32,12 @@
 	--main-color: #075985;
 	--secondary-color: #0b7895;
 
-	--header-bg: #064a73;
-	--header-color: #fff;
+	--header-height: 5.6rem;
+	--header-bg: #f7f8f9;
+	--header-color: #24313a;
+	--contactbar-bg: #f0f2f4;
+	--contactbar-color: #24313a;
+	--contactbar-accent: #d45b4c;
 	--bar-bg: #075985;
 	--menu-bg-color: #fff;
 	--menu-color: #5f6368;

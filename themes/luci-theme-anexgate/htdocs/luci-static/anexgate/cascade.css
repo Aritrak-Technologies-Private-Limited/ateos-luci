@@ -252,9 +252,9 @@ header {
 	position: fixed;
 	z-index: 2000;
 	float: left;
-	height: 4rem;
+	height: var(--header-height);
 	transition: box-shadow .2s;
-	box-shadow: 0 2px 5px rgba(0, 0, 0, .26);
+	box-shadow: 0 1px 4px rgba(0, 0, 0, .18);
 }
 
 footer {
@@ -280,11 +280,11 @@ small {
 
 .main {
 	position: relative;
-	top: 4rem;
+	top: var(--header-height);
 	bottom: 0;
 	overflow-y: auto;
 	height: 100%;
-	height: calc(100% - 4rem);
+	height: calc(100% - var(--header-height));
 }
 
 .main > .loading {
@@ -338,12 +338,12 @@ small {
 
 .main-left {
 	position: fixed;
-	top: 4rem;
+	top: var(--header-height);
 	float: left;
 	overflow-x: auto;
 	width: calc(0% + 15rem);
 	min-width: max-content;
-	height: calc(100% - 4rem);
+	height: calc(100% - var(--header-height));
 	background-color: var(--menu-bg-color);
 	transition: visibility 400ms, width 400ms;
 	z-index: 800;
@@ -384,9 +384,80 @@ header {
 	background: var(--header-bg);
 }
 
+header > .contactbar {
+	display: flex;
+	align-items: center;
+	gap: 1.4rem;
+	min-height: 2rem;
+	padding: 0 .9rem 0 7.2rem;
+	color: var(--contactbar-color);
+	background: var(--contactbar-bg);
+	font-size: .86rem;
+	font-weight: 500;
+	white-space: nowrap;
+}
+
+header > .contactbar > .contact-item {
+	display: inline-flex;
+	align-items: center;
+	gap: .35rem;
+}
+
+header > .contactbar > .contact-item::before {
+	color: var(--contactbar-accent);
+	font-weight: 700;
+}
+
+header > .contactbar > .contact-email::before {
+	content: "Mail";
+}
+
+header > .contactbar > .contact-sales::before {
+	content: "Sales";
+}
+
+header > .contactbar > .contact-support::before {
+	content: "Support";
+}
+
+header > .contactbar > .social-icons {
+	display: inline-flex;
+	align-items: center;
+	gap: 1rem;
+	margin-left: auto;
+	padding-right: 1rem;
+}
+
+header > .contactbar > .social-icons > .social-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1rem;
+	height: 1rem;
+	color: var(--contactbar-color);
+	text-decoration: none;
+	transition: color .15s ease;
+}
+
+header > .contactbar > .social-icons > .social-icon:hover,
+header > .contactbar > .social-icons > .social-icon:focus {
+	color: var(--contactbar-accent);
+}
+
+header > .contactbar > .social-icons > .social-icon > svg {
+	display: block;
+	width: 100%;
+	height: 100%;
+	fill: currentColor;
+}
+
+header > .fill {
+	background: var(--header-bg);
+}
+
 header > .fill > .container {
-	margin-top: .5rem;
-	padding: .5rem 1rem 0 1rem;
+	margin-top: 0;
+	padding: .45rem 1rem .35rem 1rem;
 	-webkit-user-select: none;
 	-moz-user-select: none;
 	-ms-user-select: none;
@@ -1716,7 +1787,7 @@ body:not(.Interfaces) .cbi-rowstyle-2:first-child {
 #modal_overlay {
 	position: fixed;
 	z-index: 900;
-	top: 4rem;
+	top: var(--header-height);
 	right: 10000px;
 	bottom: 0;
 	left: -10000px;
@@ -2653,23 +2724,23 @@ input[name="nslookup"] {
 
 @media screen and (max-width: 1366px) {
 	header {
-		height: 3.5rem;
+		height: var(--header-height);
 	}
 
 	header > .fill > .container {
-		margin-top: .25rem;
+		margin-top: 0;
 		cursor: default;
 	}
 
 	.main {
-		top: 3.5rem;
-		height: calc(100% - 3.5rem);
+		top: var(--header-height);
+		height: calc(100% - var(--header-height));
 	}
 
 	.main-left {
-		top: 3.5rem;
+		top: var(--header-height);
 		width: calc(0% + 13rem);
-		height: calc(100% - 3.5rem);
+		height: calc(100% - var(--header-height));
 	}
 
 	.main-right {
@@ -2719,7 +2790,7 @@ input[name="nslookup"] {
 	}
 
 	#modal_overlay {
-		top: 3.5rem;
+		top: var(--header-height);
 	}
 
 	[data-page="admin-network-firewall-forwards"] .table:not(.cbi-section-table) {
@@ -2739,8 +2810,29 @@ input[name="nslookup"] {
 }
 
 @media screen and (max-width: 1152px) {
+	:root {
+		--header-height: 7.25rem;
+	}
+
+	header > .contactbar {
+		justify-content: center;
+		flex-wrap: wrap;
+		gap: .25rem 1rem;
+		min-height: 3.15rem;
+		padding: .35rem .8rem;
+		font-size: .78rem;
+		white-space: normal;
+		text-align: center;
+	}
+
+	header > .contactbar > .social-icons {
+		margin-left: 0;
+		padding-right: 0;
+	}
+
 	header > .fill > .container > #logo {
-		display: none;
+		width: 10rem;
+		margin-left: .75rem;
 	}
 
 	header > .fill > .container > .brand {
