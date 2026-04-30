@@ -75,7 +75,7 @@
 	</div>
 </header>
 <div class="main">
-	<div style="" class="loading"><span><div class="loading-img"></div>{{ _('Collecting data...') }}</span></div>
+	<div style="" class="loading"><span><div class="loading-img"></div>{{ _('Loading ACE Console...') }}</span></div>
 	<div class="main-left" id="mainmenu" style="display:none"></div>
 	<div class="main-right">
 		<div class="modemenu-buttons" style="display:none">
