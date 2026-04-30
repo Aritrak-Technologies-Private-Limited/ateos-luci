@@ -1,0 +1,12 @@
+#!/bin/sh
+
+if [ "$PKG_UPGRADE" != 1 ]; then
+	uci get luci.themes.AnexGate >/dev/null 2>&1 || \
+	uci batch <<-EOF
+		set luci.themes.AnexGate=/luci-static/anexgate
+		set luci.main.mediaurlbase=/luci-static/anexgate
+		commit luci
+	EOF
+fi
+
+exit 0
