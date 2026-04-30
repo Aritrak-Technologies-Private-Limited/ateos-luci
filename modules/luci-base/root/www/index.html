@@ -7,16 +7,52 @@
 		<meta http-equiv="Expires" content="Thu, 01 Jan 1970 00:00:00 GMT" />
 		<meta http-equiv="refresh" content="0; URL=cgi-bin/luci/" />
 		<style>
-			body { background: white; font-family: arial, helvetica, sans-serif; }
-			a { color: black; }
+			html,
+			body {
+				height: 100%;
+				margin: 0;
+			}
 
-			@media (prefers-color-scheme: dark) {
-				body { background: black; }
-				a { color: white; }
+			body {
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				background: #f5f7f9;
+				color: #24313a;
+				font-family: arial, helvetica, sans-serif;
+			}
+
+			.loader {
+				display: flex;
+				align-items: center;
+				gap: .75rem;
+				font-size: 1rem;
+				font-weight: 600;
+			}
+
+			.spinner {
+				width: 1.5rem;
+				height: 1.5rem;
+				border: 3px solid #d8dde2;
+				border-top-color: #075985;
+				border-radius: 50%;
+				animation: spin .8s linear infinite;
+			}
+
+			.loader a {
+				color: inherit;
+				text-decoration: none;
+			}
+
+			@keyframes spin {
+				to { transform: rotate(360deg); }
 			}
 		</style>
 	</head>
 	<body>
-		<a href="cgi-bin/luci/">LuCI - Lua Configuration Interface</a>
+		<div class="loader">
+			<span class="spinner"></span>
+			<a href="cgi-bin/luci/">Loading ACE Console...</a>
+		</div>
 	</body>
 </html>
