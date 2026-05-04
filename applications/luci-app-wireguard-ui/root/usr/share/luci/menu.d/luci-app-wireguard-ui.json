@@ -1,0 +1,27 @@
+{
+	"admin/vpn/wireguard": {
+		"title": "WireGuard",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "wireguard-ui/wireguard"
+		},
+		"depends": {
+			"acl": [ "luci-app-wireguard-ui" ],
+			"uci": { "network": true }
+		}
+	},
+
+	"admin/vpn/wireguard/status": {
+		"title": "Status",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "wireguard/status"
+		},
+		"depends": {
+			"acl": [ "luci-app-wireguard-ui" ],
+			"uci": { "network": true }
+		}
+	}
+}

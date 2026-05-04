@@ -1,0 +1,47 @@
+{
+	"luci-app-wireguard-ui": {
+		"description": "Grant access to WireGuard VPN UI",
+		"read": {
+			"cgi-io": [ "exec" ],
+			"file": {
+				"/sbin/ifup": [ "exec" ],
+				"/sbin/ifdown": [ "exec" ]
+			},
+			"ubus": {
+				"file": [ "exec" ],
+				"luci.wireguard": [
+					"getWgInstances"
+				],
+				"network.interface": [
+					"dump"
+				],
+				"network": [
+					"get_proto_handlers"
+				],
+				"luci-rpc": [
+					"getBoardJSON",
+					"getHostHints",
+					"getNetworkDevices",
+					"getWirelessDevices"
+				]
+			},
+			"uci": [ "luci", "network", "system", "wireless" ]
+		},
+		"write": {
+			"cgi-io": [ "exec" ],
+			"file": {
+				"/sbin/ifup": [ "exec" ],
+				"/sbin/ifdown": [ "exec" ]
+			},
+			"ubus": {
+				"file": [ "exec" ],
+				"luci.wireguard": [
+					"generateKeyPair",
+					"getPublicAndPrivateKeyFromPrivate",
+					"generatePsk"
+				]
+			},
+			"uci": [ "network" ]
+		}
+	}
+}
