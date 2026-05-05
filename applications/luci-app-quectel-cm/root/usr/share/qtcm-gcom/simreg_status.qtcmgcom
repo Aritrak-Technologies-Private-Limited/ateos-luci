@@ -1,0 +1,17 @@
+opengt
+ set com 115200n81
+ set comecho off
+ set senddelay 0.02
+ waitquiet 0.2 0.2
+ flash 0.1
+
+:start
+ send "AT+CGREG^m"
+ get 1 "" $n
+ let n = len($n)
+ if n<1 goto continue
+
+ print $n,"\n"
+
+:continue
+ exit 0

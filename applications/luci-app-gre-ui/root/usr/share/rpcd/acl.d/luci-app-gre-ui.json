@@ -1,0 +1,39 @@
+{
+	"luci-app-gre-ui": {
+		"description": "Grant access to GRE VPN UI",
+		"read": {
+			"cgi-io": [ "exec" ],
+			"file": {
+				"/sbin/ifup": [ "exec" ],
+				"/sbin/ifdown": [ "exec" ]
+			},
+			"ubus": {
+				"file": [ "exec" ],
+				"network.interface": [
+					"dump"
+				],
+				"network": [
+					"get_proto_handlers"
+				],
+				"luci-rpc": [
+					"getBoardJSON",
+					"getHostHints",
+					"getNetworkDevices",
+					"getWirelessDevices"
+				]
+			},
+			"uci": [ "luci", "network", "system", "wireless" ]
+		},
+		"write": {
+			"cgi-io": [ "exec" ],
+			"file": {
+				"/sbin/ifup": [ "exec" ],
+				"/sbin/ifdown": [ "exec" ]
+			},
+			"ubus": {
+				"file": [ "exec" ]
+			},
+			"uci": [ "network" ]
+		}
+	}
+}

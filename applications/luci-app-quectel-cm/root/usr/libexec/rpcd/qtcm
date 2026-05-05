@@ -1,0 +1,22 @@
+#!/bin/sh
+
+case "$1" in
+	list)
+		cat <<'EOF'
+{ "status": {} }
+EOF
+		;;
+	call)
+		case "$2" in
+			status)
+				/usr/bin/qtcm-status.sh
+				;;
+			*)
+				exit 1
+				;;
+		esac
+		;;
+	*)
+		exit 1
+		;;
+esac

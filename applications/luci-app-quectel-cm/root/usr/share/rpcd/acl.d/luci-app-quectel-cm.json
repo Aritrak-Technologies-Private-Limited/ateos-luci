@@ -1,0 +1,18 @@
+{
+	"luci-app-quectel-cm": {
+		"description": "Grant access to the Quectel CM LuCI app",
+		"read": {
+			"uci": [ "qtcm" ],
+			"ubus": {
+				"service": [ "list" ]
+			}
+		},
+		"write": {
+			"uci": [ "qtcm" ],
+			"file": {
+				"/etc/init.d/qtcm": [ "exec" ],
+				"/usr/bin/qtcm-status.sh": [ "exec" ]
+			}
+		}
+	}
+}
