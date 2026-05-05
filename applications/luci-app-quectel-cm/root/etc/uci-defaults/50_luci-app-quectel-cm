@@ -1,5 +1,12 @@
 #!/bin/sh
 
+# Remove stale Lua dispatcher files from older builds. The app now uses
+# menu.d JSON entries and JS views under /www/luci-static/resources/view/.
+rm -f /usr/lib/lua/luci/controller/quectel_cm.lua
+rm -f /usr/lib/lua/luci/view/quectel_cm/config.htm
+rm -f /tmp/luci-indexcache.*
+rm -rf /tmp/luci-modulecache/
+
 set_default() {
 	local option="$1"
 	local value="$2"
