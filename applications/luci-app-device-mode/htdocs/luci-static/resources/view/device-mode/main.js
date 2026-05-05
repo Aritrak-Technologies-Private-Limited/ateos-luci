@@ -52,13 +52,17 @@ function firstNetworkDevice(names) {
 
 return view.extend({
 	load: function() {
-		return Promise.all([
-			uci.load('device_mode'),
-			uci.load('network'),
-			uci.load('wireless'),
-			network.getWifiDevices(),
-			network.getDevices()
-		]);
+		return fs.exec('/usr/libexec/luci-device-mode', [ 'init' ]).then(function() {
+			uci.unload('device_mode');
+
+			return Promise.all([
+				uci.load('device_mode'),
+				uci.load('network'),
+				uci.load('wireless'),
+				network.getWifiDevices(),
+				network.getDevices()
+			]);
+		});
 	},
 
 	render: function(data) {
@@ -86,8 +90,12 @@ return view.extend({
 		s.tab('advanced', _('Advanced'));
 
 		o = s.taboption('mode', form.DummyValue, '_active', _('Current saved mode'));
+		o.rawhtml = true;
 		o.cfgvalue = function() {
-			return modeLabel(currentMode);
+			return E('span', {
+				'class': 'ifacebadge',
+				'style': 'display:inline-flex;align-items:center;min-height:2.4em'
+			}, [ modeLabel(currentMode) ]).outerHTML;
 		};
 
 		o = s.taboption('mode', form.ListValue, 'mode', _('Operating mode'));
