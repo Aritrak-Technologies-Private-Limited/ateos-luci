@@ -17,20 +17,64 @@ function modeLabel(mode) {
 	return labels[mode] || mode || _('Unknown');
 }
 
+function deviceModeValue(option) {
+	var value = uci.get('device_mode', 'main', option);
+	return (value != null && value !== '') ? value : null;
+}
+
+function firstWifiIface(match) {
+	var sections = uci.sections('wireless', 'wifi-iface');
+
+	for (var i = 0; i < sections.length; i++) {
+		if (sections[i]['.name'] == 'luci_device_mode_sta' || sections[i]['.name'] == 'luci_device_mode_ap')
+			continue;
+
+		if (!match || match(sections[i]))
+			return sections[i];
+	}
+
+	return null;
+}
+
+function firstNetworkDevice(names) {
+	for (var i = 0; i < names.length; i++) {
+		var name = names[i];
+
+		if (uci.get('network', name, 'device'))
+			return uci.get('network', name, 'device');
+
+		if (uci.get('network', name, 'ifname'))
+			return uci.get('network', name, 'ifname');
+	}
+
+	return null;
+}
+
 return view.extend({
 	load: function() {
 		return Promise.all([
 			uci.load('device_mode'),
+			uci.load('network'),
+			uci.load('wireless'),
 			network.getWifiDevices(),
 			network.getDevices()
 		]);
 	},
 
 	render: function(data) {
-		var wifiDevices = data[1] || [],
-		    netDevices = data[2] || [],
+		var wifiDevices = data[3] || [],
+		    netDevices = data[4] || [],
 		    currentMode = uci.get('device_mode', 'main', 'mode') || 'router',
+		    currentAp = firstWifiIface(function(s) { return s.mode == 'ap' && L.toArray(s.network).indexOf('lan') > -1; }),
+		    currentSta = firstWifiIface(function(s) { return s.mode == 'sta'; }),
+		    defaultLanDevice = firstNetworkDevice([ 'lan' ]) || 'lan',
+		    defaultWanDevice = firstNetworkDevice([ 'wan', 'wan6' ]) || 'wan',
+		    defaultRadio = deviceModeValue('wifi_radio') || (currentAp && currentAp.device) || (currentSta && currentSta.device) || '',
 		    m, s, o;
+
+		function fallback(option, value) {
+			return deviceModeValue(option) || value || '';
+		}
 
 		m = new form.Map('device_mode', _('Operating Mode'),
 			_('Switch the device between router, wireless client, WiFi repeater, and unmanaged LAN switch profiles.'));
@@ -38,12 +82,15 @@ return view.extend({
 		s = m.section(form.NamedSection, 'main', 'config', _('Mode Selection'),
 			_('Changing mode rewrites network, wireless, DHCP, and firewall settings. A backup is created under /etc/backup/device-mode before each apply.'));
 
-		o = s.option(form.DummyValue, '_active', _('Current saved mode'));
+		s.tab('mode', _('Mode'));
+		s.tab('advanced', _('Advanced'));
+
+		o = s.taboption('mode', form.DummyValue, '_active', _('Current saved mode'));
 		o.cfgvalue = function() {
 			return modeLabel(currentMode);
 		};
 
-		o = s.option(form.ListValue, 'mode', _('Operating mode'));
+		o = s.taboption('mode', form.ListValue, 'mode', _('Operating mode'));
 		o.default = 'router';
 		o.rmempty = false;
 		o.value('router', _('Router Mode'));
@@ -51,8 +98,11 @@ return view.extend({
 		o.value('wifi_repeater', _('WiFi Repeater'));
 		o.value('dumb_lan', _('Dumb LAN Mode'));
 
-		o = s.option(form.Value, 'lan_ipaddr', _('LAN IP address'));
+		o = s.taboption('advanced', form.Value, 'lan_ipaddr', _('LAN IP address'));
 		o.default = '192.168.1.1';
+		o.cfgvalue = function() {
+			return fallback('lan_ipaddr', uci.get('network', 'lan', 'ipaddr') || '192.168.1.1');
+		};
 		o.datatype = 'ip4addr';
 		o.rmempty = false;
 		o.depends('mode', 'router');
@@ -60,8 +110,11 @@ return view.extend({
 		o.depends('mode', 'wifi_repeater');
 		o.depends({ mode: 'dumb_lan', dumb_lan_proto: 'static' });
 
-		o = s.option(form.Value, 'lan_netmask', _('LAN netmask'));
+		o = s.taboption('advanced', form.Value, 'lan_netmask', _('LAN netmask'));
 		o.default = '255.255.255.0';
+		o.cfgvalue = function() {
+			return fallback('lan_netmask', uci.get('network', 'lan', 'netmask') || '255.255.255.0');
+		};
 		o.datatype = 'ip4addr';
 		o.rmempty = false;
 		o.depends('mode', 'router');
@@ -69,14 +122,17 @@ return view.extend({
 		o.depends('mode', 'wifi_repeater');
 		o.depends({ mode: 'dumb_lan', dumb_lan_proto: 'static' });
 
-		o = s.option(form.ListValue, 'dumb_lan_proto', _('Dumb LAN management address'));
+		o = s.taboption('advanced', form.ListValue, 'dumb_lan_proto', _('Dumb LAN management address'));
 		o.default = 'static';
 		o.value('static', _('Use static LAN IP'));
 		o.value('dhcp', _('Get address from upstream DHCP'));
 		o.depends('mode', 'dumb_lan');
 
-		o = s.option(form.Value, 'lan_ifname', _('LAN device'));
+		o = s.taboption('advanced', form.Value, 'lan_ifname', _('LAN device'));
 		o.placeholder = 'lan';
+		o.cfgvalue = function() {
+			return fallback('lan_ifname', defaultLanDevice);
+		};
 		o.rmempty = true;
 		netDevices.forEach(function(dev) {
 			var name = dev.getName();
@@ -84,8 +140,11 @@ return view.extend({
 				o.value(name);
 		});
 
-		o = s.option(form.Value, 'wan_ifname', _('WAN device'));
+		o = s.taboption('advanced', form.Value, 'wan_ifname', _('WAN device'));
 		o.placeholder = 'wan';
+		o.cfgvalue = function() {
+			return fallback('wan_ifname', defaultWanDevice);
+		};
 		o.rmempty = true;
 		netDevices.forEach(function(dev) {
 			var name = dev.getName();
@@ -94,8 +153,11 @@ return view.extend({
 		});
 		o.depends('mode', 'router');
 
-		o = s.option(form.ListValue, 'wifi_radio', _('Wireless radio'));
+		o = s.taboption('advanced', form.ListValue, 'wifi_radio', _('Wireless radio'));
 		o.rmempty = true;
+		o.cfgvalue = function() {
+			return defaultRadio;
+		};
 		o.value('', _('Auto'));
 		wifiDevices.forEach(function(radio) {
 			o.value(radio.getName(), radio.getName());
@@ -104,13 +166,19 @@ return view.extend({
 		o.depends('mode', 'wifi_repeater');
 		o.depends('mode', 'router');
 
-		o = s.option(form.Value, 'uplink_ssid', _('Uplink SSID'));
+		o = s.taboption('mode', form.Value, 'uplink_ssid', _('Uplink SSID'));
+		o.cfgvalue = function() {
+			return fallback('uplink_ssid', currentSta ? currentSta.ssid : '');
+		};
 		o.rmempty = false;
 		o.depends('mode', 'wireless_client');
 		o.depends('mode', 'wifi_repeater');
 
-		o = s.option(form.ListValue, 'uplink_encryption', _('Uplink encryption'));
+		o = s.taboption('mode', form.ListValue, 'uplink_encryption', _('Uplink encryption'));
 		o.default = 'psk2';
+		o.cfgvalue = function() {
+			return fallback('uplink_encryption', currentSta ? currentSta.encryption : 'psk2');
+		};
 		o.value('psk2', _('WPA2-PSK'));
 		o.value('psk-mixed', _('WPA/WPA2-PSK mixed'));
 		o.value('sae', _('WPA3-SAE'));
@@ -118,8 +186,11 @@ return view.extend({
 		o.depends('mode', 'wireless_client');
 		o.depends('mode', 'wifi_repeater');
 
-		o = s.option(form.Value, 'uplink_key', _('Uplink password'));
+		o = s.taboption('mode', form.Value, 'uplink_key', _('Uplink password'));
 		o.password = true;
+		o.cfgvalue = function() {
+			return fallback('uplink_key', currentSta ? currentSta.key : '');
+		};
 		o.rmempty = true;
 		o.depends({ mode: 'wireless_client', uplink_encryption: 'psk2' });
 		o.depends({ mode: 'wireless_client', uplink_encryption: 'psk-mixed' });
@@ -128,14 +199,20 @@ return view.extend({
 		o.depends({ mode: 'wifi_repeater', uplink_encryption: 'psk-mixed' });
 		o.depends({ mode: 'wifi_repeater', uplink_encryption: 'sae' });
 
-		o = s.option(form.Value, 'ap_ssid', _('Local WiFi SSID'));
+		o = s.taboption('mode', form.Value, 'ap_ssid', _('Local WiFi SSID'));
 		o.default = 'OpenWrt';
+		o.cfgvalue = function() {
+			return fallback('ap_ssid', currentAp ? currentAp.ssid : 'OpenWrt');
+		};
 		o.rmempty = false;
 		o.depends('mode', 'router');
 		o.depends('mode', 'wifi_repeater');
 
-		o = s.option(form.ListValue, 'ap_encryption', _('Local WiFi encryption'));
+		o = s.taboption('mode', form.ListValue, 'ap_encryption', _('Local WiFi encryption'));
 		o.default = 'none';
+		o.cfgvalue = function() {
+			return fallback('ap_encryption', currentAp ? currentAp.encryption : 'none');
+		};
 		o.value('none', _('No encryption'));
 		o.value('psk2', _('WPA2-PSK'));
 		o.value('psk-mixed', _('WPA/WPA2-PSK mixed'));
@@ -143,8 +220,11 @@ return view.extend({
 		o.depends('mode', 'router');
 		o.depends('mode', 'wifi_repeater');
 
-		o = s.option(form.Value, 'ap_key', _('Local WiFi password'));
+		o = s.taboption('mode', form.Value, 'ap_key', _('Local WiFi password'));
 		o.password = true;
+		o.cfgvalue = function() {
+			return fallback('ap_key', currentAp ? currentAp.key : '');
+		};
 		o.rmempty = true;
 		o.depends({ mode: 'router', ap_encryption: 'psk2' });
 		o.depends({ mode: 'router', ap_encryption: 'psk-mixed' });
@@ -153,7 +233,7 @@ return view.extend({
 		o.depends({ mode: 'wifi_repeater', ap_encryption: 'psk-mixed' });
 		o.depends({ mode: 'wifi_repeater', ap_encryption: 'sae' });
 
-		o = s.option(form.Button, '_apply_mode', _('Apply operating mode'));
+		o = s.taboption('mode', form.Button, '_apply_mode', _('Apply operating mode'));
 		o.inputstyle = 'apply';
 		o.inputtitle = _('Save & Apply Mode');
 		o.onclick = function() {

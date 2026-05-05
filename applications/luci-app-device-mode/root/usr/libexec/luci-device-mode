@@ -45,6 +45,42 @@ first_wifi_radio() {
 	uci -q show wireless | sed -n "s/^\(wireless\.[^.]*\)=wifi-device$/\1/p" | sed -n 's/^wireless\.//p' | sed -n '1p'
 }
 
+first_wifi_iface() {
+	local mode="$1"
+
+	uci -q show wireless | sed -n "s/^\(wireless\.[^.]*\)\.mode='$mode'$/\1/p" | sed -n '1p'
+}
+
+wifi_iface_option() {
+	local mode="$1"
+	local option="$2"
+	local section
+
+	section="$(first_wifi_iface "$mode")"
+	[ -n "$section" ] || return 0
+
+	uci -q get "$section.$option" 2>/dev/null || true
+}
+
+value_or_default() {
+	local value="$1"
+	local default="$2"
+
+	if [ -n "$value" ]; then
+		printf '%s' "$value"
+	else
+		printf '%s' "$default"
+	fi
+}
+
+network_device_option() {
+	local iface="$1"
+
+	uci -q get "network.$iface.device" 2>/dev/null ||
+		uci -q get "network.$iface.ifname" 2>/dev/null ||
+		true
+}
+
 delete_our_wifi() {
 	uci -q delete "wireless.$OUR_STA" || true
 	uci -q delete "wireless.$OUR_AP" || true
@@ -72,9 +108,9 @@ backup_configs() {
 setup_lan_static() {
 	local ipaddr netmask lan_ifname
 
-	ipaddr="$(get lan_ipaddr 192.168.1.1)"
-	netmask="$(get lan_netmask 255.255.255.0)"
-	lan_ifname="$(get lan_ifname '')"
+	ipaddr="$(get lan_ipaddr "$(uci -q get network.lan.ipaddr 2>/dev/null || printf '192.168.1.1')")"
+	netmask="$(get lan_netmask "$(uci -q get network.lan.netmask 2>/dev/null || printf '255.255.255.0')")"
+	lan_ifname="$(get lan_ifname "$(network_device_option lan)")"
 
 	uci -q set network.lan='interface'
 	uci -q set network.lan.proto='static'
@@ -89,7 +125,7 @@ setup_lan_static() {
 setup_lan_dhcp_client() {
 	local lan_ifname
 
-	lan_ifname="$(get lan_ifname '')"
+	lan_ifname="$(get lan_ifname "$(network_device_option lan)")"
 	uci -q set network.lan='interface'
 	uci -q set network.lan.proto='dhcp'
 	uci -q delete network.lan.ipaddr || true
@@ -118,7 +154,7 @@ disable_lan_dhcp() {
 setup_wan_dhcp() {
 	local wan_ifname
 
-	wan_ifname="$(get wan_ifname '')"
+	wan_ifname="$(get wan_ifname "$(network_device_option wan)")"
 	uci -q set network.wan='interface'
 	uci -q set network.wan.proto='dhcp'
 
@@ -144,12 +180,13 @@ setup_wwan() {
 }
 
 setup_sta() {
-	local radio ssid encryption key
+	local radio ssid encryption key current_encryption
 
 	radio="$(first_wifi_radio)"
-	ssid="$(get uplink_ssid '')"
-	encryption="$(get uplink_encryption psk2)"
-	key="$(get uplink_key '')"
+	ssid="$(get uplink_ssid "$(wifi_iface_option sta ssid)")"
+	current_encryption="$(wifi_iface_option sta encryption)"
+	encryption="$(get uplink_encryption "$(value_or_default "$current_encryption" psk2)")"
+	key="$(get uplink_key "$(wifi_iface_option sta key)")"
 
 	[ -n "$radio" ] || {
 		echo "No wireless radio found." >&2
@@ -178,12 +215,14 @@ setup_sta() {
 }
 
 setup_ap() {
-	local radio ssid encryption key
+	local radio ssid encryption key current_ssid current_encryption
 
 	radio="$(first_wifi_radio)"
-	ssid="$(get ap_ssid OpenWrt)"
-	encryption="$(get ap_encryption none)"
-	key="$(get ap_key '')"
+	current_ssid="$(wifi_iface_option ap ssid)"
+	current_encryption="$(wifi_iface_option ap encryption)"
+	ssid="$(get ap_ssid "$(value_or_default "$current_ssid" OpenWrt)")"
+	encryption="$(get ap_encryption "$(value_or_default "$current_encryption" none)")"
+	key="$(get ap_key "$(wifi_iface_option ap key)")"
 
 	[ -n "$radio" ] || return 0
 
