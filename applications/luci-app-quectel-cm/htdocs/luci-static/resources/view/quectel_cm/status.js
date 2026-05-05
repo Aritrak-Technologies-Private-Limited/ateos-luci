@@ -1,8 +1,14 @@
 'use strict';
 'require dom';
-'require fs';
+'require rpc';
 'require ui';
 'require view';
+
+var callQtcmStatus = rpc.declare({
+	object: 'qtcm',
+	method: 'status',
+	expect: { '': {} }
+});
 
 function serviceStatusText(running) {
 	return running ? _('Running') : _('Stopped');
@@ -25,37 +31,36 @@ function normalizeStatus(data) {
 		network_type: (data && data.network_type) || _('Unknown'),
 		provider: (data && data.provider) || _('Unknown'),
 		signal_bars: (data && data.signal_bars) || _('Unknown'),
+		signal_dbm: (data && data.signal_dbm) || _('Unknown'),
+		signal_snr: (data && data.signal_snr) || _('Unknown'),
 		signal_text: (data && data.signal_text) || _('Unknown'),
-		modem_source: (data && data.modem_source) || _('Unknown')
+		modem_source: (data && data.modem_source) || _('Unknown'),
+		active_sim: (data && data.active_sim) || _('Unknown'),
+		sim1_info: (data && data.sim1_info) || _('Unknown'),
+		sim2_info: (data && data.sim2_info) || _('Unknown')
 	};
 }
 
 return view.extend({
 	loadStatus: function() {
-		return fs.exec('/usr/bin/qtcm-status.sh', []).then(function(res) {
-			var output = (res.stdout || '').trim();
-
-			if (res.code !== 0)
-				throw new Error(((res.stderr || '') + '\n' + output).trim() || _('Status command failed.'));
-
-			try {
-				return normalizeStatus(JSON.parse(output || '{}'));
-			}
-			catch (err) {
-				throw new Error(_('Invalid status output: %s').format(err.message || err));
-			}
+		return callQtcmStatus().then(function(data) {
+			return normalizeStatus(data);
 		});
 	},
 
 	renderStatus: function(container, data) {
 		dom.content(container, [
 			fieldRow(_('Service'), serviceStatusText(data.service_running)),
+			fieldRow(_('Active SIM'), data.active_sim == '1' ? _('SIM 1') : data.active_sim == '2' ? _('SIM 2') : data.active_sim),
+			fieldRow(_('SIM 1'), data.sim1_info),
+			fieldRow(_('SIM 2'), data.sim2_info),
 			fieldRow(_('AT port'), data.at_port),
 			fieldRow(_('SIM connected'), data.sim_status),
 			fieldRow(_('Network connected'), data.network_status),
 			fieldRow(_('Network type'), data.network_type),
 			fieldRow(_('Provider'), data.provider),
-			fieldRow(_('Signal quality'), '%s (%s)'.format(data.signal_bars, data.signal_text)),
+			fieldRow(_('Signal quality'), '%s (%s, %s dBm)'.format(data.signal_bars, data.signal_text, data.signal_dbm)),
+			fieldRow(_('SNR'), data.signal_snr),
 			fieldRow(_('Interface'), data.interface),
 			fieldRow(_('Data source'), data.modem_source)
 		]);
