@@ -1,6 +1,6 @@
 {
-	"admin/status/qtcm_modem": {
-		"title": "QTCM-Modem",
+	"admin/services/quectel_cm": {
+		"title": "Quectel CM",
 		"order": 70,
 		"action": {
 			"type": "firstchild"
@@ -9,7 +9,7 @@
 			"acl": [ "luci-app-quectel-cm" ]
 		}
 	},
-	"admin/status/qtcm_modem/status": {
+	"admin/services/quectel_cm/status": {
 		"title": "Status",
 		"order": 10,
 		"action": {
@@ -20,7 +20,7 @@
 			"acl": [ "luci-app-quectel-cm" ]
 		}
 	},
-	"admin/status/qtcm_modem/config": {
+	"admin/services/quectel_cm/config": {
 		"title": "Configuration",
 		"order": 20,
 		"action": {
