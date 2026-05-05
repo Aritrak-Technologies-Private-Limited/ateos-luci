@@ -7,10 +7,7 @@
 			"path": "device-mode/main"
 		},
 		"depends": {
-			"acl": [ "luci-app-device-mode" ],
-			"uci": {
-				"device_mode": true
-			}
+			"acl": [ "luci-app-device-mode" ]
 		}
 	}
 }
