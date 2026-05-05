@@ -12,6 +12,16 @@ get() {
 	uci -q get "$CONFIG.$SECTION.$1" 2>/dev/null || printf '%s' "${2:-}"
 }
 
+ensure_config() {
+	uci -q get "$CONFIG.$SECTION" >/dev/null 2>&1 && return 0
+
+	uci -q batch <<-EOF
+		set $CONFIG.$SECTION='config'
+		set $CONFIG.$SECTION.mode='router'
+		commit $CONFIG
+	EOF
+}
+
 firewall_zone_ref() {
 	local name="$1"
 
@@ -294,6 +304,7 @@ restart_network() {
 apply_mode() {
 	local mode
 
+	ensure_config
 	mode="$(get mode router)"
 	backup_configs
 
@@ -326,11 +337,14 @@ apply_mode() {
 }
 
 case "${1:-}" in
+	init)
+		ensure_config
+		;;
 	apply)
 		apply_mode
 		;;
 	*)
-		echo "Usage: $0 apply" >&2
+		echo "Usage: $0 init|apply" >&2
 		exit 1
 		;;
 esac

@@ -5,8 +5,6 @@ uci -q get device_mode.main >/dev/null && exit 0
 uci -q batch <<'EOF'
 set device_mode.main='config'
 set device_mode.main.mode='router'
-set device_mode.main.uplink_encryption='psk2'
-set device_mode.main.dumb_lan_proto='static'
 commit device_mode
 EOF
 
