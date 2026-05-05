@@ -1,0 +1,16 @@
+{
+	"admin/network/device-mode": {
+		"title": "Operating Mode",
+		"order": 5,
+		"action": {
+			"type": "view",
+			"path": "device-mode/main"
+		},
+		"depends": {
+			"acl": [ "luci-app-device-mode" ],
+			"uci": {
+				"device_mode": true
+			}
+		}
+	}
+}

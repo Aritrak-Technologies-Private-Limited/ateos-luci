@@ -1,0 +1,37 @@
+{
+	"luci-app-device-mode": {
+		"description": "Grant access to the device operating mode switcher",
+		"read": {
+			"cgi-io": [ "exec" ],
+			"file": {
+				"/usr/libexec/luci-device-mode": [ "exec" ]
+			},
+			"ubus": {
+				"luci-rpc": [
+					"getNetworkDevices",
+					"getWirelessDevices"
+				]
+			},
+			"uci": [
+				"device_mode",
+				"dhcp",
+				"firewall",
+				"network",
+				"wireless"
+			]
+		},
+		"write": {
+			"cgi-io": [ "exec" ],
+			"file": {
+				"/usr/libexec/luci-device-mode": [ "exec" ]
+			},
+			"uci": [
+				"device_mode",
+				"dhcp",
+				"firewall",
+				"network",
+				"wireless"
+			]
+		}
+	}
+}

@@ -1,0 +1,297 @@
+#!/bin/sh
+
+set -eu
+
+CONFIG=device_mode
+SECTION=main
+OUR_STA=luci_device_mode_sta
+OUR_AP=luci_device_mode_ap
+BACKUP_DIR=/etc/backup/device-mode
+
+get() {
+	uci -q get "$CONFIG.$SECTION.$1" 2>/dev/null || printf '%s' "${2:-}"
+}
+
+firewall_zone_ref() {
+	local name="$1"
+
+	uci -q show firewall | sed -n "s/^\(firewall\.[^.]*\)\.name='$name'$/\1/p" | sed -n '1p'
+}
+
+set_list_network() {
+	local zone_ref
+
+	zone_ref="$(firewall_zone_ref "$1")"
+	shift
+
+	[ -n "$zone_ref" ] || return 0
+
+	uci -q delete "$zone_ref.network" || true
+	while [ "$#" -gt 0 ]; do
+		[ -n "$1" ] && uci add_list "$zone_ref.network=$1"
+		shift
+	done
+}
+
+first_wifi_radio() {
+	local radio
+
+	radio="$(get wifi_radio '')"
+	if [ -n "$radio" ] && uci -q get "wireless.$radio" >/dev/null; then
+		printf '%s' "$radio"
+		return
+	fi
+
+	uci -q show wireless | sed -n "s/^\(wireless\.[^.]*\)=wifi-device$/\1/p" | sed -n 's/^wireless\.//p' | sed -n '1p'
+}
+
+delete_our_wifi() {
+	uci -q delete "wireless.$OUR_STA" || true
+	uci -q delete "wireless.$OUR_AP" || true
+}
+
+disable_wifi_ifaces() {
+	local section
+
+	for section in $(uci -q show wireless | sed -n "s/^\(wireless\.[^.]*\)=wifi-iface$/\1/p"); do
+		uci -q set "$section.disabled=1"
+	done
+}
+
+backup_configs() {
+	local ts
+
+	ts="$(date +%Y%m%d-%H%M%S)"
+	mkdir -p "$BACKUP_DIR/$ts"
+
+	for cfg in network wireless dhcp firewall; do
+		[ -f "/etc/config/$cfg" ] && cp "/etc/config/$cfg" "$BACKUP_DIR/$ts/$cfg"
+	done
+}
+
+setup_lan_static() {
+	local ipaddr netmask lan_ifname
+
+	ipaddr="$(get lan_ipaddr 192.168.1.1)"
+	netmask="$(get lan_netmask 255.255.255.0)"
+	lan_ifname="$(get lan_ifname '')"
+
+	uci -q set network.lan='interface'
+	uci -q set network.lan.proto='static'
+	uci -q set network.lan.ipaddr="$ipaddr"
+	uci -q set network.lan.netmask="$netmask"
+
+	if [ -n "$lan_ifname" ]; then
+		uci -q set network.lan.device="$lan_ifname"
+	fi
+}
+
+setup_lan_dhcp_client() {
+	local lan_ifname
+
+	lan_ifname="$(get lan_ifname '')"
+	uci -q set network.lan='interface'
+	uci -q set network.lan.proto='dhcp'
+	uci -q delete network.lan.ipaddr || true
+	uci -q delete network.lan.netmask || true
+
+	if [ -n "$lan_ifname" ]; then
+		uci -q set network.lan.device="$lan_ifname"
+	fi
+}
+
+enable_lan_dhcp() {
+	uci -q set dhcp.lan='dhcp'
+	uci -q set dhcp.lan.interface='lan'
+	uci -q set dhcp.lan.start='100'
+	uci -q set dhcp.lan.limit='150'
+	uci -q set dhcp.lan.leasetime='12h'
+	uci -q delete dhcp.lan.ignore || true
+}
+
+disable_lan_dhcp() {
+	uci -q set dhcp.lan='dhcp'
+	uci -q set dhcp.lan.interface='lan'
+	uci -q set dhcp.lan.ignore='1'
+}
+
+setup_wan_dhcp() {
+	local wan_ifname
+
+	wan_ifname="$(get wan_ifname '')"
+	uci -q set network.wan='interface'
+	uci -q set network.wan.proto='dhcp'
+
+	if [ -n "$wan_ifname" ]; then
+		uci -q set network.wan.device="$wan_ifname"
+	fi
+
+	uci -q delete network.wwan || true
+	set_list_network wan wan wan6
+}
+
+disable_wan() {
+	uci -q set network.wan='interface'
+	uci -q set network.wan.proto='none'
+	uci -q delete network.wwan || true
+	set_list_network wan
+}
+
+setup_wwan() {
+	uci -q set network.wwan='interface'
+	uci -q set network.wwan.proto='dhcp'
+	set_list_network wan wan wan6 wwan
+}
+
+setup_sta() {
+	local radio ssid encryption key
+
+	radio="$(first_wifi_radio)"
+	ssid="$(get uplink_ssid '')"
+	encryption="$(get uplink_encryption psk2)"
+	key="$(get uplink_key '')"
+
+	[ -n "$radio" ] || {
+		echo "No wireless radio found." >&2
+		return 1
+	}
+
+	[ -n "$ssid" ] || {
+		echo "Uplink SSID is required for this mode." >&2
+		return 1
+	}
+
+	uci -q set "wireless.$radio.disabled=0"
+	uci -q set "wireless.$OUR_STA=wifi-iface"
+	uci -q set "wireless.$OUR_STA.device=$radio"
+	uci -q set "wireless.$OUR_STA.mode=sta"
+	uci -q set "wireless.$OUR_STA.network=wwan"
+	uci -q set "wireless.$OUR_STA.ssid=$ssid"
+	uci -q set "wireless.$OUR_STA.encryption=$encryption"
+	uci -q set "wireless.$OUR_STA.disabled=0"
+
+	if [ "$encryption" = "none" ]; then
+		uci -q delete "wireless.$OUR_STA.key" || true
+	else
+		uci -q set "wireless.$OUR_STA.key=$key"
+	fi
+}
+
+setup_ap() {
+	local radio ssid encryption key
+
+	radio="$(first_wifi_radio)"
+	ssid="$(get ap_ssid OpenWrt)"
+	encryption="$(get ap_encryption none)"
+	key="$(get ap_key '')"
+
+	[ -n "$radio" ] || return 0
+
+	uci -q set "wireless.$radio.disabled=0"
+	uci -q set "wireless.$OUR_AP=wifi-iface"
+	uci -q set "wireless.$OUR_AP.device=$radio"
+	uci -q set "wireless.$OUR_AP.mode=ap"
+	uci -q set "wireless.$OUR_AP.network=lan"
+	uci -q set "wireless.$OUR_AP.ssid=$ssid"
+	uci -q set "wireless.$OUR_AP.encryption=$encryption"
+	uci -q set "wireless.$OUR_AP.disabled=0"
+
+	if [ "$encryption" = "none" ]; then
+		uci -q delete "wireless.$OUR_AP.key" || true
+	else
+		uci -q set "wireless.$OUR_AP.key=$key"
+	fi
+}
+
+apply_router() {
+	delete_our_wifi
+	disable_wifi_ifaces
+	setup_lan_static
+	enable_lan_dhcp
+	setup_wan_dhcp
+	setup_ap
+}
+
+apply_wireless_client() {
+	delete_our_wifi
+	disable_wifi_ifaces
+	setup_lan_static
+	enable_lan_dhcp
+	setup_wwan
+	setup_sta
+}
+
+apply_wifi_repeater() {
+	delete_our_wifi
+	disable_wifi_ifaces
+	setup_lan_static
+	enable_lan_dhcp
+	setup_wwan
+	setup_sta
+	setup_ap
+}
+
+apply_dumb_lan() {
+	delete_our_wifi
+	disable_wifi_ifaces
+	disable_wan
+	disable_lan_dhcp
+
+	if [ "$(get dumb_lan_proto static)" = "dhcp" ]; then
+		setup_lan_dhcp_client
+	else
+		setup_lan_static
+	fi
+}
+
+restart_network() {
+	/etc/init.d/dnsmasq restart >/dev/null 2>&1 || true
+	/etc/init.d/odhcpd restart >/dev/null 2>&1 || true
+	/etc/init.d/firewall restart >/dev/null 2>&1 || true
+	wifi reload >/dev/null 2>&1 || wifi >/dev/null 2>&1 || true
+	/etc/init.d/network reload >/dev/null 2>&1 || /etc/init.d/network restart >/dev/null 2>&1 || true
+}
+
+apply_mode() {
+	local mode
+
+	mode="$(get mode router)"
+	backup_configs
+
+	case "$mode" in
+		router)
+			apply_router
+			;;
+		wireless_client)
+			apply_wireless_client
+			;;
+		wifi_repeater)
+			apply_wifi_repeater
+			;;
+		dumb_lan)
+			apply_dumb_lan
+			;;
+		*)
+			echo "Unsupported operating mode: $mode" >&2
+			return 1
+			;;
+	esac
+
+	uci -q commit network
+	uci -q commit wireless
+	uci -q commit dhcp
+	uci -q commit firewall
+	restart_network
+
+	echo "Applied operating mode: $mode"
+}
+
+case "${1:-}" in
+	apply)
+		apply_mode
+		;;
+	*)
+		echo "Usage: $0 apply" >&2
+		exit 1
+		;;
+esac
