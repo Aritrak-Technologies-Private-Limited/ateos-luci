@@ -28,6 +28,37 @@ trim_line() {
 	printf '%s' "$1" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
 }
 
+read_sim_option() {
+	local sim="$1"
+	local option="$2"
+	local value
+
+	value="$(read_uci "qtcm.sim${sim}.${option}")"
+	[ -n "$value" ] || value="$(read_uci "qtcm.sim${sim}_${option}")"
+	printf '%s' "$value"
+}
+
+sim_enabled_text() {
+	[ "$(read_sim_option "$1" enabled)" = "1" ] && printf '%s' "Enabled" || printf '%s' "Disabled"
+}
+
+sim_summary() {
+	local sim="$1"
+	local desc apn ip_type network_mode
+
+	desc="$(read_sim_option "$sim" description)"
+	apn="$(read_sim_option "$sim" apn)"
+	ip_type="$(read_sim_option "$sim" ip_type)"
+	network_mode="$(read_sim_option "$sim" network_mode)"
+
+	[ -n "$desc" ] || desc="SIM $sim"
+	[ -n "$apn" ] || apn="APN not set"
+	[ -n "$ip_type" ] || ip_type="ipv4"
+	[ -n "$network_mode" ] || network_mode="auto"
+
+	printf '%s - %s, %s, %s, %s' "$desc" "$(sim_enabled_text "$sim")" "$apn" "$network_mode" "$ip_type"
+}
+
 detect_service_running() {
 	if command -v ubus >/dev/null 2>&1; then
 		ubus call service list '{"name":"qtcm"}' 2>/dev/null | grep -q '"running":true'
@@ -192,6 +223,16 @@ parse_signal_text() {
 	printf '%s' "$value"
 }
 
+parse_signal_snr() {
+	local raw value
+
+	raw="$1"
+	value="$(printf '%s' "$raw" | sed -n 's/.*SNR[^-0-9]*\(-\{0,1\}[0-9][0-9]*\).*/\1/p' | head -n 1)"
+	[ -n "$value" ] || value="$(printf '%s' "$raw" | sed -n 's/.*SINR[^-0-9]*\(-\{0,1\}[0-9][0-9]*\).*/\1/p' | head -n 1)"
+	[ -n "$value" ] || value="Unknown"
+	printf '%s' "$value"
+}
+
 signal_bars_from_csq() {
 	local raw rssi
 
@@ -223,11 +264,28 @@ signal_bars_from_csq() {
 	esac
 }
 
+signal_dbm_from_csq() {
+	local raw rssi
+
+	raw="$(trim_line "$1")"
+	rssi="$(printf '%s' "$raw" | awk -F',' '{ gsub(/[^0-9]/, "", $1); print $1; exit }')"
+
+	case "$rssi" in
+		''|99)
+			printf '%s' "Unknown"
+			;;
+		*)
+			awk -v rssi="$rssi" 'BEGIN { printf "%d", -113 + (2 * rssi) }'
+			;;
+	esac
+}
+
 main() {
 	local running=0
 	local interface at_port
-	local modem_source sim_status network_status network_type provider signal_bars signal_text
+	local modem_source sim_status network_status network_type provider signal_bars signal_text signal_dbm signal_snr
 	local sim_raw reg_raw provider_raw serving_raw csq_raw
+	local active_sim sim1_info sim2_info
 
 	if detect_service_running; then
 		running=1
@@ -235,6 +293,10 @@ main() {
 
 	interface="$(detect_interface)"
 	at_port="$(detect_at_port)"
+	active_sim="$(read_uci qtcm.main.active_sim)"
+	[ "$active_sim" = "2" ] || active_sim="1"
+	sim1_info="$(sim_summary 1)"
+	sim2_info="$(sim_summary 2)"
 
 	if [ -n "$at_port" ]; then
 		sim_raw="$(run_gcom_script "$at_port" "sim_status.qtcmgcom")"
@@ -249,6 +311,8 @@ main() {
 		network_type="$(parse_network_type "$serving_raw $provider_raw")"
 		provider="$(parse_provider "$provider_raw")"
 		signal_bars="$(signal_bars_from_csq "$csq_raw")"
+		signal_dbm="$(signal_dbm_from_csq "$csq_raw")"
+		signal_snr="$(parse_signal_snr "$serving_raw")"
 		signal_text="$(trim_line "$csq_raw")"
 		[ -n "$signal_text" ] || signal_text="$(parse_signal_text "$serving_raw")"
 	else
@@ -258,6 +322,8 @@ main() {
 		network_type="Unknown"
 		provider="Unknown"
 		signal_bars="Unknown"
+		signal_dbm="Unknown"
+		signal_snr="Unknown"
 		signal_text="Unknown"
 	fi
 
@@ -270,8 +336,13 @@ main() {
 	printf '"network_type":"%s",' "$(json_escape "$network_type")"
 	printf '"provider":"%s",' "$(json_escape "$provider")"
 	printf '"signal_bars":"%s",' "$(json_escape "$signal_bars")"
+	printf '"signal_dbm":"%s",' "$(json_escape "$signal_dbm")"
+	printf '"signal_snr":"%s",' "$(json_escape "$signal_snr")"
 	printf '"signal_text":"%s",' "$(json_escape "$signal_text")"
-	printf '"modem_source":"%s"' "$(json_escape "$modem_source")"
+	printf '"modem_source":"%s",' "$(json_escape "$modem_source")"
+	printf '"active_sim":"%s",' "$(json_escape "$active_sim")"
+	printf '"sim1_info":"%s",' "$(json_escape "$sim1_info")"
+	printf '"sim2_info":"%s"' "$(json_escape "$sim2_info")"
 	printf '}\n'
 }
 
