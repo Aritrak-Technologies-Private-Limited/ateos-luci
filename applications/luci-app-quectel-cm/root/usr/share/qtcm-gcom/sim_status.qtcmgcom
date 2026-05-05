@@ -1,0 +1,33 @@
+opengt
+    set com 115200n81
+    set senddelay 0.05
+    waitquiet 1 0.2
+:start
+    flash 0.1
+    send "AT+CMEE=2^m"
+    waitfor 5 "OK","ERR","ERROR"
+    send "AT+CPIN?^m"
+    waitfor 30 "SIM PUK","SIM PIN","READY","ERROR","ERR"
+    if % = -1 goto error
+    if % = 0 goto ready
+    if % = 1 goto getpin
+    if % = 2 goto ready
+    if % = 3 goto error
+    if % = 4 goto error
+:error
+    print $s," ***SIM ERROR***\n"
+    print "Check device port configuration.\nCheck SIM is inserted\nTest SIM in a mobile phone?\n"
+    send "AT+CFUN=0^m"
+    waitfor 5 "OK","ERR","ERROR"
+    send "AT+CFUN=1^m"
+    waitfor 5 "OK","ERR","ERROR"
+    exit 1
+:ready
+    print "SIM ready\n"
+    goto continue
+:getpin
+    waitfor 1 "2"
+    if % = 0 goto ready
+    print "\nNeed SIM PIN number "
+:continue
+    exit 0
