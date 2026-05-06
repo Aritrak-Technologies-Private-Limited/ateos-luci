@@ -134,8 +134,7 @@ return view.extend({
 	},
 
 	render: function() {
-		var map = new form.Map('qtcm', _('QTCM'),
-			_('Configure QTCM dialing settings and manage the qtcm service for quectel-CM.'));
+		var map = new form.Map('qtcm');
 		var section = map.section(form.NamedSection, 'main', 'qtcm', _('Connection Settings'));
 		var statusNode = E('div', { 'class': 'cbi-section-descr' }, _('Checking service status...'));
 		var pdnSelect = E('select', { 'class': 'cbi-input-select' }, [
