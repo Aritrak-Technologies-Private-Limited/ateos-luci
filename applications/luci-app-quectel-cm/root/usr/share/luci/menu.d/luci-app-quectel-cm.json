@@ -30,5 +30,16 @@
 		"depends": {
 			"acl": [ "luci-app-quectel-cm" ]
 		}
+	},
+	"admin/services/quectel_cm/failover": {
+		"title": "Failover",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "quectel_cm/failover"
+		},
+		"depends": {
+			"acl": [ "luci-app-quectel-cm" ]
+		}
 	}
 }
