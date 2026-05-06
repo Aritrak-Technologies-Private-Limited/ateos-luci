@@ -49,6 +49,42 @@ function addFirewallZoneValues(o) {
 	});
 }
 
+function parentSection(node) {
+	while (node && node.parentNode) {
+		if (node.classList && node.classList.contains('cbi-section'))
+			return node;
+
+		node = node.parentNode;
+	}
+
+	return null;
+}
+
+function arrangeSimSections(node) {
+	var sim1Node = node.querySelector('#cbi-qtcm-sim1');
+	var sim2Node = node.querySelector('#cbi-qtcm-sim2');
+	var sim1Section = parentSection(sim1Node);
+	var sim2Section = parentSection(sim2Node);
+	var grid;
+
+	if (!sim1Section || !sim2Section || sim1Section.parentNode !== sim2Section.parentNode)
+		return;
+
+	if (!node.querySelector('#qtcm-sim-grid-style')) {
+		node.insertBefore(E('style', { 'id': 'qtcm-sim-grid-style' }, [
+			'.qtcm-sim-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;align-items:start}',
+			'.qtcm-sim-grid>.cbi-section{margin:0;min-width:0}',
+			'.qtcm-sim-grid .cbi-value-title{min-width:10rem}',
+			'@media(max-width:900px){.qtcm-sim-grid{grid-template-columns:1fr}}'
+		]), node.firstChild || null);
+	}
+
+	grid = E('div', { 'class': 'qtcm-sim-grid' });
+	sim1Section.parentNode.insertBefore(grid, sim1Section);
+	grid.appendChild(sim1Section);
+	grid.appendChild(sim2Section);
+}
+
 function addSimSection(map, sectionId, label, simNo) {
 	var section = map.section(form.NamedSection, sectionId, 'sim',
 		_('%s%s').format(label, cfgvalue('qtcm', 'main', 'active_sim', '1') == String(simNo) ? _(' (Active)') : ''));
@@ -327,6 +363,7 @@ return view.extend({
 
 		return map.render().then(L.bind(function(node) {
 			node.insertBefore(actionRow, node.firstChild || null);
+			arrangeSimSections(node);
 			return this.updateStatus(statusNode).then(function() {
 				return node;
 			});
