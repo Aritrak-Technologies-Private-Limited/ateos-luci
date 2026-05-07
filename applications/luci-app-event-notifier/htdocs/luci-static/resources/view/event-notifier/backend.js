@@ -4,9 +4,9 @@
 return view.extend({
 	render: function() {
 		return E('div', { 'class': 'cbi-map' }, [
-			E('h2', {}, _('Alert Notifier Backend Needs')),
+			E('h2', {}, _('Event Notifier Backend Needs')),
 			E('div', { 'class': 'cbi-map-descr' }, [
-				_('This LuCI app stores device-local alert rules and notification settings. The router backend must evaluate these rules locally and send notifications directly from the device.')
+				_('This LuCI app stores device-local alert rules, event rules and notification settings. The router backend must evaluate these rules locally and send notifications directly from the device.')
 			]),
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('Router packages')),
@@ -34,14 +34,28 @@ return view.extend({
 					E('tr', { 'class': 'tr' }, [
 						E('td', { 'class': 'td' }, _('Local scheduling')),
 						E('td', { 'class': 'td' }, 'procd init script or cron')
+					]),
+					E('tr', { 'class': 'tr' }, [
+						E('td', { 'class': 'td' }, _('Login event parsing')),
+						E('td', { 'class': 'td' }, 'logread, syslog auth/dropbear/telnet messages')
+					]),
+					E('tr', { 'class': 'tr' }, [
+						E('td', { 'class': 'td' }, _('Hotplug events')),
+						E('td', { 'class': 'td' }, '/etc/hotplug.d/ hooks or ubus events')
+					]),
+					E('tr', { 'class': 'tr' }, [
+						E('td', { 'class': 'td' }, _('Ethernet link events')),
+						E('td', { 'class': 'td' }, 'netifd/ubus events or netlink carrier state')
 					])
 				])
 			]),
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('Backend service contract')),
 				E('ul', {}, [
-					E('li', {}, _('Read UCI config from alert-notifier.')),
+					E('li', {}, _('Read UCI config from event-notifier.')),
 					E('li', {}, _('Maintain local alert state for firing, recovery, and repeat suppression.')),
+					E('li', {}, _('Parse local system logs for SSH, Telnet and local user login success/failure events, including non-root login events.')),
+					E('li', {}, _('Capture hotplug and Ethernet plug/unplug events locally.')),
 					E('li', {}, _('Use luci-app-quectel-cm/qtcm status to identify the active modem and AT port, then run qtcm-style gcom scripts to read ICCID, IMSI and IMEI.')),
 					E('li', {}, _('Send email and SMS through configured API URLs using key and shared secret authentication.')),
 					E('li', {}, _('Write device-local event history to the configured log path.')),

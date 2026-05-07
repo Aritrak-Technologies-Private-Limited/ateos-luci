@@ -1,8 +1,8 @@
-# LuCI Alert Notifier
+# LuCI Event Notifier
 
-Device-local alert configuration for offline, speed threshold, latency and SIM tampering events.
+Device-local event and alert configuration for router-side notifications.
 
-This package provides the LuCI configuration UI and default UCI schema. The router-side evaluator and notification dispatcher should be implemented as a local backend service which reads `/etc/config/alert-notifier`.
+This package provides the LuCI configuration UI and default UCI schema. The router-side evaluator, event logger and notification dispatcher should be implemented as a local backend service which reads `/etc/config/event-notifier`.
 
 ## Backend requirements
 
@@ -11,6 +11,9 @@ This package provides the LuCI configuration UI and default UCI schema. The rout
 - `/sys/class/net/*/statistics` or `ubus network.interface status` for speed threshold checks.
 - `luci-app-quectel-cm` for SIM status and AT port detection through the `qtcm` rpcd status method.
 - `gcom` scripts from `/usr/share/qtcm-gcom/` for SIM tampering identity checks using ICCID, IMSI and IMEI. Add `iccid.qtcmgcom`, `imsi.qtcmgcom` and `imei.qtcmgcom` scripts if they are not already present.
+- `logread`/syslog parsing for SSH, Telnet and local user login success/failure events.
+- `/etc/hotplug.d/` hooks or ubus events for hotplug event capture.
+- netifd/ubus events or netlink carrier state for Ethernet plug/unplug capture.
 - A local `procd` service or equivalent scheduler to evaluate rules, keep alert state, deduplicate repeated notifications and write local event history.
 
 Email and SMS API credentials follow the same local UCI auth shape used by `luci-app-openwisp`: `url`, `key`, `shared_secret`, `verify_ssl`, `connect_timeout` and `max_time`.

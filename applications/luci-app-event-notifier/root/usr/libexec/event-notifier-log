@@ -1,0 +1,8 @@
+#!/bin/sh
+
+LOG_FILE="$(uci -q get event-notifier.main.event_log 2>/dev/null)"
+[ -n "$LOG_FILE" ] || LOG_FILE="/var/log/event-notifier.log"
+
+[ -f "$LOG_FILE" ] || exit 0
+
+tail -n 500 "$LOG_FILE" 2>/dev/null
