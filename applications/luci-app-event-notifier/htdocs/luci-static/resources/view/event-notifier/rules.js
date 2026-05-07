@@ -138,22 +138,22 @@ return view.extend({
 		o.depends({ type: 'sim_tampering' });
 		o.placeholder = 'auto';
 
-		o = s.option(form.Value, 'gcom_dir', _('gcom script directory'), _('Defaults to the script directory used by luci-app-quectel-cm.'));
+		o = s.option(form.Value, 'gcom_dir', _('gcom script directory'));
 		o.datatype = 'directory';
 		o.depends({ type: 'sim_tampering' });
-		o.placeholder = '/usr/share/qtcm-gcom';
+		o.placeholder = '/etc/gcom';
 
 		o = s.option(form.Value, 'iccid_script', _('ICCID script'));
 		o.depends({ type: 'sim_tampering' });
-		o.placeholder = 'iccid.qtcmgcom';
+		o.placeholder = 'iccid.gcom';
 
 		o = s.option(form.Value, 'imsi_script', _('IMSI script'));
 		o.depends({ type: 'sim_tampering' });
-		o.placeholder = 'imsi.qtcmgcom';
+		o.placeholder = 'imsi.gcom';
 
 		o = s.option(form.Value, 'imei_script', _('IMEI script'));
 		o.depends({ type: 'sim_tampering' });
-		o.placeholder = 'imei.qtcmgcom';
+		o.placeholder = 'imei.gcom';
 
 		o = s.option(form.Value, 'expected_iccid', _('Expected ICCID'));
 		o.depends({ type: 'sim_tampering' });
