@@ -1,0 +1,351 @@
+#!/usr/bin/ucode
+
+'use strict';
+
+import { access, popen, readfile } from 'fs';
+import { connect } from 'ubus';
+
+const ubus = connect();
+
+function read_trim(path) {
+	return trim(readfile(path) || '');
+}
+
+function command_json(cmd) {
+	let fd = popen(cmd + ' 2>/dev/null', 'r');
+
+	if (!fd)
+		return null;
+
+	let out = fd.read('all');
+	fd.close();
+
+	if (!out)
+		return null;
+
+	try {
+		return json(out);
+	}
+	catch (e) {
+		return null;
+	}
+}
+
+function command_lines(cmd) {
+	let fd = popen(cmd + ' 2>/dev/null', 'r');
+	let lines = [];
+
+	if (!fd)
+		return lines;
+
+	for (let line = fd.read('line'); length(line); line = fd.read('line'))
+		push(lines, trim(line));
+
+	fd.close();
+
+	return lines;
+}
+
+function normalize_mac(mac) {
+	if (!mac)
+		return null;
+
+	return lc(mac);
+}
+
+function device_key(mac, ip) {
+	if (!mac && !ip)
+		return null;
+
+	return mac ? ('mac:' + normalize_mac(mac)) : ('ip:' + ip);
+}
+
+function ensure_device(devices, mac, ip) {
+	let key = device_key(mac, ip);
+
+	if (!key)
+		return null;
+
+	if (!devices[key]) {
+		devices[key] = {
+			ip: ip || null,
+			mac: mac ? uc(mac) : null,
+			hostname: null,
+			type: 'unknown',
+			signal: null,
+			interface: null,
+			vendor: null,
+			sources: []
+		};
+	}
+
+	if (ip && !devices[key].ip)
+		devices[key].ip = ip;
+
+	if (mac && !devices[key].mac)
+		devices[key].mac = uc(mac);
+
+	return devices[key];
+}
+
+function add_source(device, source) {
+	if (!device || !source || index(device.sources, source) >= 0)
+		return;
+
+	push(device.sources, source);
+}
+
+function load_router() {
+	let hostname = read_trim('/proc/sys/kernel/hostname') || 'OpenWrt';
+	let model = read_trim('/tmp/sysinfo/model') ||
+		read_trim('/tmp/sysinfo/board_name') ||
+		'OpenWrt';
+
+	return {
+		hostname,
+		model
+	};
+}
+
+function merge_dhcp_leases(devices) {
+	let leases = readfile('/tmp/dhcp.leases') || '';
+
+	for (let line in split(leases, '\n')) {
+		line = trim(line);
+
+		if (!line)
+			continue;
+
+		let fields = split(line, /\s+/);
+
+		if (length(fields) < 4)
+			continue;
+
+		let mac = fields[1];
+		let ip = fields[2];
+		let hostname = fields[3];
+		let dev = ensure_device(devices, mac, ip);
+
+		if (!dev)
+			continue;
+
+		if (hostname && hostname != '*')
+			dev.hostname = hostname;
+
+		if (dev.type == 'unknown')
+			dev.type = 'lan';
+
+		add_source(dev, 'dhcp');
+	}
+}
+
+function merge_neighbors(devices) {
+	for (let line in command_lines('ip neigh show')) {
+		let m = match(line, /^(\S+)\s+dev\s+(\S+)(?:\s+lladdr\s+([0-9a-fA-F:]{17}))?.*\s+(\S+)$/);
+
+		if (!m)
+			continue;
+
+		let ip = m[1];
+		let ifname = m[2];
+		let mac = m[3];
+		let state = m[4];
+
+		if (!mac || state == 'FAILED' || state == 'INCOMPLETE')
+			continue;
+
+		let dev = ensure_device(devices, mac, ip);
+
+		if (!dev)
+			continue;
+
+		if (!dev.interface)
+			dev.interface = ifname;
+
+		if (dev.type == 'unknown')
+			dev.type = match(ifname, /^(wlan|phy|radio)/) ? 'wifi' : 'lan';
+
+		dev.neighbor_state = state;
+		add_source(dev, 'neighbor');
+	}
+}
+
+function merge_wireless_clients(devices) {
+	let objects = {};
+
+	try {
+		objects = ubus.list('hostapd.*')?.[0] || {};
+	}
+	catch (e) {
+		return;
+	}
+
+	for (let obj, methods in objects) {
+		if (!match(obj, /^hostapd\./))
+			continue;
+
+		let ifname = substr(obj, 8);
+		let clients = null;
+
+		try {
+			clients = ubus.call(obj, 'get_clients', {});
+		}
+		catch (e) {
+			continue;
+		}
+
+		for (let mac, sta in clients?.clients || {}) {
+			let dev = ensure_device(devices, mac, null);
+
+			if (!dev)
+				continue;
+
+			dev.type = 'wifi';
+			dev.interface = ifname;
+
+			if (sta.signal != null)
+				dev.signal = sta.signal;
+
+			if (sta.hostname && !dev.hostname)
+				dev.hostname = sta.hostname;
+
+			add_source(dev, 'hostapd');
+		}
+	}
+}
+
+function load_interfaces() {
+	let dump = null;
+	let interfaces = [];
+
+	try {
+		dump = ubus.call('network.interface', 'dump', {});
+	}
+	catch (e) {
+		return interfaces;
+	}
+
+	for (let iface in dump?.interface || []) {
+		push(interfaces, {
+			name: iface.interface,
+			proto: iface.proto || null,
+			device: iface.device || null,
+			up: !!iface.up,
+			pending: !!iface.pending,
+			available: !!iface.available,
+			uptime: iface.uptime || 0,
+			ipv4: iface['ipv4-address'] || [],
+			ipv6: iface['ipv6-address'] || []
+		});
+	}
+
+	return interfaces;
+}
+
+function first_value(value) {
+	if (type(value) == 'array')
+		return value?.[0]?.value ?? value?.[0] ?? null;
+
+	if (type(value) == 'object')
+		return value.value ?? null;
+
+	return value ?? null;
+}
+
+function collect_lldp_ports(node, local_port, neighbors) {
+	if (type(node) == 'array') {
+		for (let item in node)
+			collect_lldp_ports(item, local_port, neighbors);
+
+		return;
+	}
+
+	if (type(node) != 'object')
+		return;
+
+	let local = local_port;
+
+	if (node.interface) {
+		if (type(node.interface) == 'array') {
+			for (let ifdata in node.interface)
+				collect_lldp_ports(ifdata, ifdata?.name || local, neighbors);
+		}
+		else if (type(node.interface) == 'object') {
+			for (let ifname, ifdata in node.interface)
+				collect_lldp_ports(ifdata, ifdata?.name || ifname, neighbors);
+		}
+	}
+
+	if (node.port && node.chassis) {
+		let chassis = node.chassis?.[0] ?? node.chassis;
+		let port = node.port?.[0] ?? node.port;
+
+		push(neighbors, {
+			local_port: local,
+			remote_device: first_value(chassis?.name) || first_value(chassis?.id) || 'Unknown',
+			remote_port: first_value(port?.descr) || first_value(port?.id) || 'Unknown',
+			protocol: first_value(node.protocol) || node.via || 'LLDP'
+		});
+
+		return;
+	}
+
+	for (let key, child in node) {
+		if (key == 'interface')
+			continue;
+
+		collect_lldp_ports(child, local, neighbors);
+	}
+}
+
+function load_lldp_neighbors() {
+	let neighbors = [];
+
+	if (!access('/usr/sbin/lldpcli', 'x') && !access('/usr/bin/lldpcli', 'x'))
+		return neighbors;
+
+	let data = command_json('lldpcli -f json0 show neighbors');
+
+	if (!data)
+		data = command_json('lldpcli -f json show neighbors');
+
+	collect_lldp_ports(data, null, neighbors);
+
+	return neighbors;
+}
+
+function devices_array(devices) {
+	let result = [];
+
+	for (let key, dev in devices)
+		push(result, dev);
+
+	return sort(result, function(a, b) {
+		let an = a.hostname || a.ip || a.mac || '';
+		let bn = b.hostname || b.ip || b.mac || '';
+
+		return an > bn ? 1 : (an < bn ? -1 : 0);
+	});
+}
+
+const methods = {
+	get: {
+		call: function() {
+			let devices = {};
+
+			merge_dhcp_leases(devices);
+			merge_neighbors(devices);
+			merge_wireless_clients(devices);
+
+			return {
+				router: load_router(),
+				devices: devices_array(devices),
+				interfaces: load_interfaces(),
+				neighbors: load_lldp_neighbors(),
+				updated: time()
+			};
+		}
+	}
+};
+
+return { 'luci.netdiscovery': methods };

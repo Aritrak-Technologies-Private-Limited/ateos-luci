@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760">
+  <rect width="1280" height="760" fill="#f6f7f9"/>
+  <text x="48" y="64" font-family="Arial, sans-serif" font-size="30" fill="#1f2937">Status / Net Discovery</text>
+  <rect x="48" y="96" width="1184" height="276" rx="6" fill="#ffffff" stroke="#d8dde5"/>
+  <circle cx="640" cy="232" r="54" fill="#2563eb"/>
+  <text x="606" y="238" font-family="Arial, sans-serif" font-size="18" fill="#ffffff">Router</text>
+  <g stroke="#94a3b8" stroke-width="3">
+    <line x1="586" y1="232" x2="280" y2="176"/>
+    <line x1="586" y1="232" x2="280" y2="288"/>
+    <line x1="694" y1="232" x2="1000" y2="176"/>
+    <line x1="694" y1="232" x2="1000" y2="288"/>
+  </g>
+  <g font-family="Arial, sans-serif" font-size="16" text-anchor="middle">
+    <circle cx="280" cy="176" r="38" fill="#16a34a"/>
+    <text x="280" y="181" fill="#ffffff">LAN</text>
+    <circle cx="280" cy="288" r="38" fill="#0f766e"/>
+    <text x="280" y="293" fill="#ffffff">WiFi</text>
+    <circle cx="1000" cy="176" r="38" fill="#7c3aed"/>
+    <text x="1000" y="181" fill="#ffffff">LLDP</text>
+    <circle cx="1000" cy="288" r="38" fill="#64748b"/>
+    <text x="1000" y="293" fill="#ffffff">WAN</text>
+  </g>
+  <rect x="48" y="404" width="1184" height="296" rx="6" fill="#ffffff" stroke="#d8dde5"/>
+  <text x="72" y="446" font-family="Arial, sans-serif" font-size="22" fill="#1f2937">Connected Devices</text>
+  <g font-family="Arial, sans-serif" font-size="15" fill="#334155">
+    <text x="72" y="492">Hostname</text>
+    <text x="310" y="492">IP</text>
+    <text x="510" y="492">MAC</text>
+    <text x="790" y="492">Type</text>
+    <text x="940" y="492">Interface</text>
+    <line x1="72" y1="512" x2="1208" y2="512" stroke="#e2e8f0"/>
+    <text x="72" y="552">Laptop</text>
+    <text x="310" y="552">192.168.1.100</text>
+    <text x="510" y="552">AA:BB:CC:DD:EE:FF</text>
+    <text x="790" y="552">WiFi</text>
+    <text x="940" y="552">wlan0</text>
+    <text x="72" y="604">Switch-01</text>
+    <text x="310" y="604">192.168.1.2</text>
+    <text x="510" y="604">11:22:33:44:55:66</text>
+    <text x="790" y="604">LLDP</text>
+    <text x="940" y="604">lan1</text>
+  </g>
+</svg>

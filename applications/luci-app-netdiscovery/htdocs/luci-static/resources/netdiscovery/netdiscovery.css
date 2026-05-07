@@ -1,0 +1,112 @@
+.netdiscovery-summary {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+	gap: 12px;
+	margin: 1em 0;
+}
+
+.netdiscovery-metric {
+	border: 1px solid var(--border-color-medium, #d6dce5);
+	border-radius: 6px;
+	background: var(--background-color-high, #fff);
+	padding: 12px;
+}
+
+.netdiscovery-metric strong {
+	display: block;
+	font-size: 24px;
+	line-height: 1.2;
+}
+
+.netdiscovery-metric span {
+	color: var(--text-color-medium, #667085);
+	font-size: 12px;
+	text-transform: uppercase;
+}
+
+.netdiscovery-layout {
+	display: grid;
+	grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr);
+	gap: 16px;
+	align-items: start;
+}
+
+.netdiscovery-panel {
+	border: 1px solid var(--border-color-medium, #d6dce5);
+	border-radius: 6px;
+	background: var(--background-color-high, #fff);
+	padding: 14px;
+	min-width: 0;
+}
+
+.netdiscovery-panel h3 {
+	margin: 0 0 12px;
+	font-size: 18px;
+}
+
+.netdiscovery-graph {
+	display: block;
+	width: 100%;
+	height: auto;
+	min-height: 280px;
+}
+
+.netdiscovery-node text {
+	font-size: 12px;
+	fill: #111827;
+	text-anchor: middle;
+	pointer-events: none;
+}
+
+.netdiscovery-node .node-label-light {
+	fill: #fff;
+}
+
+.netdiscovery-edge {
+	stroke: #94a3b8;
+	stroke-width: 2;
+}
+
+.netdiscovery-table-wrap {
+	overflow-x: auto;
+}
+
+.netdiscovery-badge {
+	display: inline-block;
+	padding: 2px 7px;
+	border-radius: 999px;
+	background: #e5e7eb;
+	color: #111827;
+	font-size: 12px;
+	line-height: 1.5;
+	white-space: nowrap;
+}
+
+.netdiscovery-badge-wifi {
+	background: #dcfce7;
+	color: #14532d;
+}
+
+.netdiscovery-badge-lan {
+	background: #dbeafe;
+	color: #1e3a8a;
+}
+
+.netdiscovery-badge-lldp {
+	background: #ede9fe;
+	color: #4c1d95;
+}
+
+.netdiscovery-muted {
+	color: var(--text-color-medium, #667085);
+}
+
+.netdiscovery-gap {
+	height: 16px;
+}
+
+@media screen and (max-width: 900px) {
+	.netdiscovery-layout {
+		grid-template-columns: 1fr;
+	}
+}
