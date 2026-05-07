@@ -6,7 +6,7 @@ The app is generic and local-only. It is not tied to any firmware branding, cont
 
 ## Features
 
-- Unified client inventory from DHCP, ARP/neighbor, and WiFi station data
+- Unified client inventory from DHCP, ARP/neighbor, LuCI host hints, and WiFi station data
 - Interface status summary from `network.interface dump`
 - Optional LLDP neighbor visibility from `lldpcli`
 - Realtime LuCI polling every 7 seconds
@@ -17,6 +17,7 @@ The app is generic and local-only. It is not tied to any firmware branding, cont
 
 - `/tmp/dhcp.leases`
 - `ip neigh show`
+- `ubus call luci-rpc getHostHints`
 - `ubus call hostapd.* get_clients`
 - `ubus call network.interface dump`
 - `lldpcli show neighbors -f json0`

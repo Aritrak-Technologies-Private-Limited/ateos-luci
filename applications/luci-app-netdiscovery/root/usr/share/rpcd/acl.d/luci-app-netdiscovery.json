@@ -3,8 +3,17 @@
 		"description": "Grant access to local network discovery data",
 		"read": {
 			"ubus": {
+				"hostapd.*": [
+					"get_clients"
+				],
+				"luci-rpc": [
+					"getHostHints"
+				],
 				"luci.netdiscovery": [
 					"get"
+				],
+				"network.interface": [
+					"dump"
 				]
 			}
 		}
