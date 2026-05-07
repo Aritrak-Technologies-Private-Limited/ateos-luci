@@ -54,7 +54,7 @@ return view.extend({
 				E('ul', {}, [
 					E('li', {}, _('Read UCI config from event-notifier.')),
 					E('li', {}, _('Maintain local alert state for firing, recovery, and repeat suppression.')),
-					E('li', {}, _('Parse local system logs for SSH, Telnet and local user login success/failure events, including non-root login events.')),
+					E('li', {}, _('Parse local system logs for login success/failure events, with selectable SSH, Telnet and local user login methods.')),
 					E('li', {}, _('Capture hotplug and Ethernet plug/unplug events locally.')),
 					E('li', {}, _('Use luci-app-quectel-cm/qtcm status to identify the active modem and AT port, then run gcom scripts from /etc/gcom/ to read ICCID, IMSI and IMEI.')),
 					E('li', {}, _('Send email and SMS through configured API URLs using key and shared secret authentication.')),

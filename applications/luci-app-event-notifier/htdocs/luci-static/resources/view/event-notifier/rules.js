@@ -1,7 +1,6 @@
 'use strict';
 'require view';
 'require form';
-'require tools.widgets as widgets';
 
 function addChannels(section) {
 	var o = section.option(form.MultiValue, 'channel', _('Notify by'));
@@ -42,8 +41,7 @@ return view.extend({
 
 		s = m.section(form.TypedSection, 'trigger', _('Alert Rules'));
 		s.anonymous = false;
-		s.addremove = true;
-		s.addbtntitle = _('Add alert rule');
+		s.addremove = false;
 
 		o = s.option(form.Flag, 'enabled', _('Enable'));
 		o.default = '1';
@@ -54,6 +52,7 @@ return view.extend({
 		o.value('latency', _('Latency'));
 		o.value('sim_tampering', _('SIM tampering'));
 		o.rmempty = false;
+		o.readonly = true;
 
 		o = s.option(form.ListValue, 'severity', _('Severity'));
 		o.value('info', _('Info'));
@@ -61,9 +60,15 @@ return view.extend({
 		o.value('critical', _('Critical'));
 		o.default = 'warning';
 
-		o = s.option(widgets.NetworkSelect, 'interface', _('Network interface'));
+		o = s.option(form.DynamicList, 'interface', _('Network interfaces'), _('Use logical network names such as wan, wan2 or lan. Use * to match all interfaces.'));
 		o.depends({ type: 'offline' });
 		o.depends({ type: 'speed_threshold' });
+		o.value('*', _('All interfaces'));
+		o.value('wan', 'wan');
+		o.value('wan2', 'wan2');
+		o.value('wan6', 'wan6');
+		o.value('wan26', 'wan26');
+		o.value('lan', 'lan');
 		o.placeholder = 'wan';
 
 		o = s.option(form.DynamicList, 'host', _('Hosts to check'), _('Offline alert fires when all hosts fail for the configured failure count.'));
