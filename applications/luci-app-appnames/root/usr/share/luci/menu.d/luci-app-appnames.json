@@ -1,0 +1,13 @@
+{
+	"admin/system/appnames": {
+		"title": "Display Names",
+		"order": 91,
+		"action": {
+			"type": "view",
+			"path": "appnames"
+		},
+		"depends": {
+			"acl": [ "luci-app-appnames" ]
+		}
+	}
+}
