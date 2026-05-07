@@ -10,7 +10,7 @@ This package provides the LuCI configuration UI and default UCI schema. The rout
 - `ping` for offline and latency checks.
 - `/sys/class/net/*/statistics` or `ubus network.interface status` for speed threshold checks.
 - `luci-app-quectel-cm` for SIM status and AT port detection through the `qtcm` rpcd status method.
-- `gcom` scripts from `/usr/share/qtcm-gcom/` for SIM tampering identity checks using ICCID, IMSI and IMEI. Add `iccid.qtcmgcom`, `imsi.qtcmgcom` and `imei.qtcmgcom` scripts if they are not already present.
+- `comgt` for the `gcom` command and `/etc/gcom/` scripts used by SIM tampering identity checks. Add `iccid.gcom`, `imsi.gcom` and `imei.gcom` scripts if they are not already present.
 - `logread`/syslog parsing for SSH, Telnet and local user login success/failure events.
 - `/etc/hotplug.d/` hooks or ubus events for hotplug event capture.
 - netifd/ubus events or netlink carrier state for Ethernet plug/unplug capture.

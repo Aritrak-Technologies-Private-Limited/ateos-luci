@@ -3,7 +3,7 @@
 include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=LuCI support for local event notifications
-LUCI_DEPENDS:=+luci-base +curl +ca-bundle +gcom +luci-app-quectel-cm
+LUCI_DEPENDS:=+luci-base +curl +ca-bundle +comgt +luci-app-quectel-cm
 PKG_LICENSE:=Apache-2.0
 
 include ../../luci.mk

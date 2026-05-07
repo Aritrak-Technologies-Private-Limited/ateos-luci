@@ -29,7 +29,7 @@ return view.extend({
 					]),
 					E('tr', { 'class': 'tr' }, [
 						E('td', { 'class': 'td' }, _('SIM tampering checks')),
-						E('td', { 'class': 'td' }, 'luci-app-quectel-cm, qtcm rpcd status, gcom, /usr/share/qtcm-gcom/*.qtcmgcom')
+						E('td', { 'class': 'td' }, 'luci-app-quectel-cm, qtcm rpcd status, comgt/gcom, /etc/gcom/*.gcom')
 					]),
 					E('tr', { 'class': 'tr' }, [
 						E('td', { 'class': 'td' }, _('Local scheduling')),
@@ -56,7 +56,7 @@ return view.extend({
 					E('li', {}, _('Maintain local alert state for firing, recovery, and repeat suppression.')),
 					E('li', {}, _('Parse local system logs for SSH, Telnet and local user login success/failure events, including non-root login events.')),
 					E('li', {}, _('Capture hotplug and Ethernet plug/unplug events locally.')),
-					E('li', {}, _('Use luci-app-quectel-cm/qtcm status to identify the active modem and AT port, then run qtcm-style gcom scripts to read ICCID, IMSI and IMEI.')),
+					E('li', {}, _('Use luci-app-quectel-cm/qtcm status to identify the active modem and AT port, then run gcom scripts from /etc/gcom/ to read ICCID, IMSI and IMEI.')),
 					E('li', {}, _('Send email and SMS through configured API URLs using key and shared secret authentication.')),
 					E('li', {}, _('Write device-local event history to the configured log path.')),
 					E('li', {}, _('Never require cloud polling for these device alerts.'))
