@@ -15,9 +15,9 @@ return view.extend({
 	render: function() {
 		var m, s, o;
 
-		m = new form.Map('alert-notifier',
-			_('Alert Notifier'),
-			_('Device-local alert rules. Events are evaluated on this router and notifications are sent directly from this router.'));
+		m = new form.Map('event-notifier',
+			_('Event Notifier'),
+			_('Device-local alert rules. Alerts are evaluated on this router and notifications are sent directly from this router.'));
 
 		s = m.section(form.NamedSection, 'main', 'service', _('Service'));
 
@@ -34,11 +34,11 @@ return view.extend({
 
 		o = s.option(form.Value, 'spool_dir', _('Runtime spool directory'));
 		o.datatype = 'directory';
-		o.placeholder = '/var/run/alert-notifier';
+		o.placeholder = '/var/run/event-notifier';
 
 		o = s.option(form.Value, 'event_log', _('Local event log'));
 		o.datatype = 'file';
-		o.placeholder = '/var/log/alert-notifier.log';
+		o.placeholder = '/var/log/event-notifier.log';
 
 		s = m.section(form.TypedSection, 'trigger', _('Alert Rules'));
 		s.anonymous = false;

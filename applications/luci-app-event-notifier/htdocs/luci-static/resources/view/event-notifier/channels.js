@@ -34,8 +34,8 @@ return view.extend({
 	render: function() {
 		var m, s, o;
 
-		m = new form.Map('alert-notifier',
-			_('Alert Notifications'),
+		m = new form.Map('event-notifier',
+			_('Event Notifications'),
 			_('API-based notification channels. Credentials are stored locally on the router and used directly by the device backend.'));
 
 		s = m.section(form.NamedSection, 'email', 'email_api', _('Email API'));

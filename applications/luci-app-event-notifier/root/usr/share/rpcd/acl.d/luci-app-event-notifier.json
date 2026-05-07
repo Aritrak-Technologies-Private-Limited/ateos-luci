@@ -1,0 +1,20 @@
+{
+	"luci-app-event-notifier": {
+		"description": "Grant access to LuCI app Event Notifier",
+		"read": {
+			"cgi-io": [ "exec" ],
+			"uci": [ "event-notifier", "qtcm" ],
+			"ubus": {
+				"file": [ "exec" ],
+				"qtcm": [ "status" ],
+				"service": [ "list" ]
+			},
+			"file": {
+				"/usr/libexec/event-notifier-log": [ "exec" ]
+			}
+		},
+		"write": {
+			"uci": [ "event-notifier" ]
+		}
+	}
+}
