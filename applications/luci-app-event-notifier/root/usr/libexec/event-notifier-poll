@@ -1,0 +1,220 @@
+#!/bin/sh
+
+. /usr/share/event-notifier/event-notifier.sh
+
+ping_host() {
+	local iface="$1"
+	local host="$2"
+	local timeout="$3"
+	local dev args
+
+	dev="$(resolve_interface_device "$iface")"
+	args="-c 1 -W $timeout"
+	[ "$dev" != "*" ] && args="$args -I $dev"
+
+	ping $args "$host" >/dev/null 2>&1
+}
+
+check_offline() {
+	local section="offline"
+	local iface host timeout failures fail_key fail_count all_failed
+
+	event_enabled "$section" || return 0
+	timeout="$(uci_get "$section" timeout)"
+	failures="$(uci_get "$section" failures)"
+	[ -n "$timeout" ] || timeout="5"
+	[ -n "$failures" ] || failures="3"
+
+	for iface in $(uci_get_list "$section" interface); do
+		all_failed=1
+		for host in $(uci_get_list "$section" host); do
+			if ping_host "$iface" "$host" "$timeout"; then
+				all_failed=0
+				fail_key="$(spool_dir)/offline.$iface.failures"
+				rm -f "$fail_key"
+				break
+			fi
+		done
+
+		[ "$all_failed" = "1" ] || continue
+
+		fail_key="$(spool_dir)/offline.$iface.failures"
+		fail_count="$(cat "$fail_key" 2>/dev/null)"
+		[ -n "$fail_count" ] || fail_count="0"
+		fail_count=$((fail_count + 1))
+		printf '%s' "$fail_count" > "$fail_key"
+
+		if [ "$fail_count" -ge "$failures" ]; then
+			emit_event "$section" offline "$(uci_get "$section" severity)" polling \
+				"Interface $iface offline" \
+				"All configured hosts failed on $iface for $fail_count consecutive checks." \
+				"offline:$iface"
+		fi
+	done
+}
+
+latency_ms() {
+	local target="$1"
+	local samples="$2"
+	local output avg
+
+	output="$(ping -c "$samples" "$target" 2>/dev/null)"
+	avg="$(printf '%s\n' "$output" | awk -F'/' '/round-trip|rtt/ { print int($5); exit }')"
+	[ -n "$avg" ] || return 1
+	printf '%s' "$avg"
+}
+
+check_latency() {
+	local section="latency"
+	local target high low samples avg state_file state
+
+	event_enabled "$section" || return 0
+	target="$(uci_get "$section" target)"
+	high="$(uci_get "$section" latency_high)"
+	low="$(uci_get "$section" latency_low)"
+	samples="$(uci_get "$section" samples)"
+	[ -n "$target" ] || return 0
+	[ -n "$high" ] || high="250"
+	[ -n "$low" ] || low="150"
+	[ -n "$samples" ] || samples="5"
+
+	avg="$(latency_ms "$target" "$samples")" || return 0
+	state_file="$(spool_dir)/latency.state"
+	state="$(cat "$state_file" 2>/dev/null)"
+
+	if [ "$avg" -ge "$high" ] && [ "$state" != "high" ]; then
+		printf '%s' "high" > "$state_file"
+		emit_event "$section" latency "$(uci_get "$section" severity)" polling \
+			"High latency to $target" \
+			"Average latency is ${avg}ms, threshold is ${high}ms." \
+			"latency:$target:high"
+	elif [ "$avg" -le "$low" ] && [ "$state" = "high" ]; then
+		printf '%s' "normal" > "$state_file"
+		emit_event "$section" latency info polling \
+			"Latency recovered to $target" \
+			"Average latency is ${avg}ms, recovery threshold is ${low}ms." \
+			"latency:$target:recovered"
+	fi
+}
+
+read_counter() {
+	local iface="$1"
+	local direction="$2"
+	local dev file
+
+	dev="$(resolve_interface_device "$iface")"
+	[ "$dev" = "*" ] && return 1
+	file="/sys/class/net/$dev/statistics/${direction}_bytes"
+	[ -r "$file" ] || return 1
+	cat "$file"
+}
+
+check_speed() {
+	local section="speed_threshold"
+	local iface direction comparator threshold window state_file old now old_time old_value value kbps bytes_delta time_delta state
+
+	event_enabled "$section" || return 0
+	direction="$(uci_get "$section" direction)"
+	comparator="$(uci_get "$section" comparator)"
+	threshold="$(uci_get "$section" threshold_kbps)"
+	window="$(uci_get "$section" window)"
+	[ -n "$direction" ] || direction="rx"
+	[ -n "$comparator" ] || comparator="below"
+	[ -n "$threshold" ] || threshold="1024"
+	[ -n "$window" ] || window="60"
+
+	for iface in $(uci_get_list "$section" interface); do
+		for dir in $([ "$direction" = "both" ] && printf 'rx tx' || printf '%s' "$direction"); do
+			value="$(read_counter "$iface" "$dir")" || continue
+			state_file="$(spool_dir)/speed.$iface.$dir"
+			now="$(date +%s)"
+			old="$(cat "$state_file" 2>/dev/null)"
+			printf '%s %s' "$now" "$value" > "$state_file"
+
+			old_time="${old%% *}"
+			old_value="${old##* }"
+			[ -n "$old_time" ] && [ "$old_time" != "$old" ] || continue
+			time_delta=$((now - old_time))
+			[ "$time_delta" -ge "$window" ] || continue
+			bytes_delta=$((value - old_value))
+			[ "$bytes_delta" -ge 0 ] || continue
+			kbps=$((bytes_delta * 8 / time_delta / 1000))
+
+			state="$(cat "$(spool_dir)/speed.$iface.$dir.state" 2>/dev/null)"
+			if { [ "$comparator" = "below" ] && [ "$kbps" -lt "$threshold" ]; } ||
+			   { [ "$comparator" = "above" ] && [ "$kbps" -gt "$threshold" ]; }; then
+				[ "$state" = "alert" ] && continue
+				printf '%s' "alert" > "$(spool_dir)/speed.$iface.$dir.state"
+				emit_event "$section" speed_threshold "$(uci_get "$section" severity)" polling \
+					"Speed threshold on $iface" \
+					"$dir average is ${kbps}kbps, condition is $comparator ${threshold}kbps." \
+					"speed:$iface:$dir:$comparator"
+			else
+				printf '%s' "normal" > "$(spool_dir)/speed.$iface.$dir.state"
+			fi
+		done
+	done
+}
+
+qtcm_at_port() {
+	local status
+
+	status="$(ubus call qtcm status 2>/dev/null)"
+	printf '%s' "$status" | sed -n 's/.*"at_port"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+}
+
+run_gcom_value() {
+	local port="$1"
+	local dir="$2"
+	local script="$3"
+
+	[ -n "$port" ] || return 1
+	[ -f "$dir/$script" ] || return 1
+	gcom -d "$port" -s "$dir/$script" 2>/dev/null | tr -d '\r' | awk 'NF { value=$0 } END { gsub(/^[[:space:]]+|[[:space:]]+$/, "", value); print value }'
+}
+
+check_sim_tampering() {
+	local section="sim_tampering"
+	local port dir iccid imsi imei expected_iccid expected_imsi expected_imei reason
+
+	event_enabled "$section" || return 0
+	port="$(uci_get "$section" at_port)"
+	[ "$port" = "auto" ] && port="$(qtcm_at_port)"
+	dir="$(uci_get "$section" gcom_dir)"
+	[ -n "$dir" ] || dir="/etc/gcom"
+
+	iccid="$(run_gcom_value "$port" "$dir" "$(uci_get "$section" iccid_script)")"
+	imsi="$(run_gcom_value "$port" "$dir" "$(uci_get "$section" imsi_script)")"
+	imei="$(run_gcom_value "$port" "$dir" "$(uci_get "$section" imei_script)")"
+
+	expected_iccid="$(uci_get "$section" expected_iccid)"
+	expected_imsi="$(uci_get "$section" expected_imsi)"
+	expected_imei="$(uci_get "$section" expected_imei)"
+
+	reason=""
+	[ -n "$expected_iccid" ] && [ -n "$iccid" ] && [ "$expected_iccid" != "$iccid" ] && reason="$reason ICCID"
+	[ -n "$expected_imsi" ] && [ -n "$imsi" ] && [ "$expected_imsi" != "$imsi" ] && reason="$reason IMSI"
+	[ -n "$expected_imei" ] && [ -n "$imei" ] && [ "$expected_imei" != "$imei" ] && reason="$reason IMEI"
+
+	[ -n "$reason" ] || return 0
+	emit_event "$section" sim_tampering "$(uci_get "$section" severity)" polling \
+		"SIM identity changed" \
+		"Unexpected identity mismatch:$reason on AT port $port." \
+		"sim_tampering:$reason"
+}
+
+run_once() {
+	service_enabled || exit 0
+	ensure_runtime
+	check_offline
+	check_latency
+	check_speed
+	check_sim_tampering
+}
+
+while true; do
+	interval="$(uci_get main interval)"
+	[ -n "$interval" ] || interval="60"
+	run_once
+	sleep "$interval"
+done

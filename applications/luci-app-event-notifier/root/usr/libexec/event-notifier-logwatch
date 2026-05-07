@@ -1,0 +1,193 @@
+#!/bin/sh
+
+. /usr/share/event-notifier/event-notifier.sh
+
+line_lc() {
+	printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+match_login() {
+	local line="$1"
+	local lower method result user
+
+	event_enabled login || return 0
+	lower="$(line_lc "$line")"
+
+	case "$lower" in
+		*dropbear*|*sshd*) method="ssh" ;;
+		*telnet*|*login:*) method="telnet" ;;
+		*) method="local_user" ;;
+	esac
+
+	event_has_value login login_method "$method" || return 0
+
+	case "$lower" in
+		*failed*|*failure*|*invalid*|*bad\ password*|*exit\ before\ auth*) result="failure" ;;
+		*accepted*|*login\ on*|*session\ opened*|*logged\ in*) result="success" ;;
+		*) return 0 ;;
+	esac
+
+	[ "$result" = "success" ] && uci_get_bool login match_success || {
+		[ "$result" = "failure" ] && uci_get_bool login match_failure || return 0
+	}
+
+	user="$(printf '%s' "$line" | sed -n "s/.*user '\([^']*\)'.*/\1/p; s/.*for \([^ ]*\) from.*/\1/p" | head -n 1)"
+	[ -n "$user" ] || user="unknown"
+	[ "$user" = "root" ] && uci_get_bool login include_root || {
+		[ "$user" != "root" ] && uci_get_bool login include_non_root || return 0
+	}
+
+	emit_event login login "$(uci_get login severity)" syslog \
+		"Login $result: $method" \
+		"user=$user line=$line" \
+		"login:$method:$result:$user"
+}
+
+match_luci_login() {
+	local line="$1"
+	local lower result
+
+	event_enabled luci_login || return 0
+	lower="$(line_lc "$line")"
+	case "$lower" in
+		*luci*failed\ login*|*luci*login\ failed*) result="failure" ;;
+		*luci*login*success*|*luci*logged\ in*) result="success" ;;
+		*) return 0 ;;
+	esac
+
+	[ "$result" = "success" ] && uci_get_bool luci_login match_success || {
+		[ "$result" = "failure" ] && uci_get_bool luci_login match_failure || return 0
+	}
+
+	emit_event luci_login luci_login "$(uci_get luci_login severity)" syslog \
+		"LuCI login $result" "$line" "luci_login:$result"
+}
+
+match_firewall_security() {
+	local line="$1"
+	local lower category
+
+	event_enabled firewall_security || return 0
+	lower="$(line_lc "$line")"
+	for category in $(uci_get_list firewall_security category); do
+		case "$lower" in
+			*"$category"*) emit_event firewall_security firewall_security "$(uci_get firewall_security severity)" syslog "Firewall/security event" "$line" "firewall_security:$category"; return 0 ;;
+		esac
+	done
+}
+
+match_service_health() {
+	local line="$1"
+	local lower service reason=""
+
+	event_enabled service_health || return 0
+	lower="$(line_lc "$line")"
+	for service in $(uci_get_list service_health service); do
+		case "$lower" in
+			*"$service"*) ;;
+			*) continue ;;
+		esac
+
+		case "$lower" in *restart*|*starting*|*stopping*) uci_get_bool service_health match_restart && reason="restart" ;; esac
+		case "$lower" in *crash*|*segfault*|*core\ dumped*) uci_get_bool service_health match_crash && reason="crash" ;; esac
+		case "$lower" in *error*|*fail*|*timeout*) uci_get_bool service_health match_error && reason="error" ;; esac
+		[ -n "$reason" ] || continue
+
+		emit_event service_health service_health "$(uci_get service_health severity)" syslog \
+			"Service $service $reason" "$line" "service_health:$service:$reason"
+		return 0
+	done
+}
+
+match_dhcp_lease() {
+	local line="$1"
+	local lower result iface
+
+	event_enabled dhcp_lease || return 0
+	lower="$(line_lc "$line")"
+	case "$lower" in
+		*dnsmasq-dhcp*dhcpack*) result="add" ;;
+		*dnsmasq-dhcp*dhcpnak*|*dnsmasq-dhcp*not\ giving*) result="remove" ;;
+		*) return 0 ;;
+	esac
+
+	[ "$result" = "add" ] && uci_get_bool dhcp_lease match_add || {
+		[ "$result" = "remove" ] && uci_get_bool dhcp_lease match_remove || return 0
+	}
+
+	for iface in $(uci_get_list dhcp_lease interface); do
+		emit_event dhcp_lease dhcp_lease "$(uci_get dhcp_lease severity)" syslog \
+			"DHCP lease $result" "$line" "dhcp_lease:$result:$iface"
+		return 0
+	done
+}
+
+match_vpn_state() {
+	local line="$1"
+	local lower vpn state
+
+	event_enabled vpn_state || return 0
+	lower="$(line_lc "$line")"
+	for vpn in $(uci_get_list vpn_state vpn); do
+		case "$lower" in *"$vpn"*) ;; *) continue ;; esac
+		case "$lower" in *up*|*started*|*connected*) uci_get_bool vpn_state match_up && state="up" ;; esac
+		case "$lower" in *down*|*stopped*|*disconnected*|*failed*) uci_get_bool vpn_state match_down && state="down" ;; esac
+		[ -n "$state" ] || continue
+		emit_event vpn_state vpn_state "$(uci_get vpn_state severity)" syslog \
+			"VPN $vpn $state" "$line" "vpn_state:$vpn:$state"
+		return 0
+	done
+}
+
+match_sim_service() {
+	local line="$1"
+	local lower service reason=""
+
+	event_enabled sim_service || return 0
+	lower="$(line_lc "$line")"
+	for service in $(uci_get_list sim_service service); do
+		case "$lower" in *"$service"*) ;; *) continue ;; esac
+		case "$lower" in *error*|*fail*|*sim*|*registration*) uci_get_bool sim_service match_error && reason="error" ;; esac
+		case "$lower" in *restart*|*starting*|*stopping*) uci_get_bool sim_service match_restart && reason="restart" ;; esac
+		[ -n "$reason" ] || continue
+		emit_event sim_service sim_service "$(uci_get sim_service severity)" syslog \
+			"SIM service $service $reason" "$line" "sim_service:$service:$reason"
+		return 0
+	done
+}
+
+match_dns_network() {
+	local line="$1"
+	local lower category reason=""
+
+	event_enabled dns_network || return 0
+	lower="$(line_lc "$line")"
+	for category in $(uci_get_list dns_network category); do
+		case "$lower" in *"$category"*) ;; *) continue ;; esac
+		case "$lower" in *fail*|*timeout*|*error*|*unreachable*) uci_get_bool dns_network match_failure && reason="failure" ;; esac
+		case "$lower" in *recover*|*connected*|*available*) uci_get_bool dns_network match_recovery && reason="recovery" ;; esac
+		[ -n "$reason" ] || continue
+		emit_event dns_network dns_network "$(uci_get dns_network severity)" syslog \
+			"DNS/network $reason" "$line" "dns_network:$category:$reason"
+		return 0
+	done
+}
+
+process_line() {
+	local line="$1"
+
+	service_enabled || return 0
+	match_login "$line"
+	match_luci_login "$line"
+	match_firewall_security "$line"
+	match_service_health "$line"
+	match_dhcp_lease "$line"
+	match_vpn_state "$line"
+	match_sim_service "$line"
+	match_dns_network "$line"
+}
+
+ensure_runtime
+logread -f 2>/dev/null | while IFS= read -r line; do
+	process_line "$line"
+done
