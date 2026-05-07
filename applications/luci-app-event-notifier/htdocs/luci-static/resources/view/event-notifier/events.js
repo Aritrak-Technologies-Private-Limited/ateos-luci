@@ -1,7 +1,6 @@
 'use strict';
 'require view';
 'require form';
-'require tools.widgets as widgets';
 
 function addChannels(section) {
 	var o = section.option(form.MultiValue, 'channel', _('Notify by'));
@@ -28,9 +27,7 @@ return view.extend({
 		o.default = '1';
 
 		o = s.option(form.ListValue, 'type', _('Event'));
-		o.value('ssh_login', _('SSH login'));
-		o.value('telnet_login', _('Telnet login'));
-		o.value('local_user_login', _('Local user login'));
+		o.value('login', _('Login'));
 		o.value('hotplug', _('Hotplug'));
 		o.value('ethernet_link', _('Ethernet link'));
 		o.rmempty = false;
@@ -47,34 +44,28 @@ return view.extend({
 		o.value('netlink', _('Network link state'));
 		o.default = 'syslog';
 
-		o = s.option(form.ListValue, 'service', _('Service'));
-		o.value('dropbear', _('Dropbear SSH'));
-		o.value('sshd', _('OpenSSH'));
+		o = s.option(form.MultiValue, 'login_method', _('Login methods'));
+		o.value('ssh', _('SSH'));
 		o.value('telnet', _('Telnet'));
-		o.depends({ type: 'ssh_login' });
-		o.depends({ type: 'telnet_login' });
+		o.value('local_user', _('Local user'));
+		o.default = ['ssh', 'telnet', 'local_user'];
+		o.depends({ type: 'login' });
 
 		o = s.option(form.Flag, 'match_success', _('Login success'));
 		o.default = '1';
-		o.depends({ type: 'ssh_login' });
-		o.depends({ type: 'telnet_login' });
+		o.depends({ type: 'login' });
 
 		o = s.option(form.Flag, 'match_failure', _('Login failure'));
 		o.default = '1';
-		o.depends({ type: 'ssh_login' });
-		o.depends({ type: 'telnet_login' });
+		o.depends({ type: 'login' });
 
 		o = s.option(form.Flag, 'include_root', _('Include root user'));
 		o.default = '1';
-		o.depends({ type: 'ssh_login' });
-		o.depends({ type: 'telnet_login' });
-		o.depends({ type: 'local_user_login' });
+		o.depends({ type: 'login' });
 
 		o = s.option(form.Flag, 'include_non_root', _('Include non-root users'));
 		o.default = '1';
-		o.depends({ type: 'ssh_login' });
-		o.depends({ type: 'telnet_login' });
-		o.depends({ type: 'local_user_login' });
+		o.depends({ type: 'login' });
 
 		o = s.option(form.DynamicList, 'subsystem', _('Hotplug subsystem'));
 		o.value('iface', _('Interface'));
@@ -83,8 +74,14 @@ return view.extend({
 		o.value('block', _('Block device'));
 		o.depends({ type: 'hotplug' });
 
-		o = s.option(widgets.DeviceSelect, 'interface', _('Interface'));
+		o = s.option(form.DynamicList, 'interface', _('Interfaces'), _('Use physical device names or logical network names. Use * to match all Ethernet interfaces.'));
 		o.depends({ type: 'ethernet_link' });
+		o.value('*', _('All Ethernet interfaces'));
+		o.value('eth0', 'eth0');
+		o.value('eth1', 'eth1');
+		o.value('wan', 'wan');
+		o.value('wan2', 'wan2');
+		o.value('lan', 'lan');
 		o.placeholder = '*';
 
 		o = s.option(form.Flag, 'match_plugged', _('Plugged in'));
