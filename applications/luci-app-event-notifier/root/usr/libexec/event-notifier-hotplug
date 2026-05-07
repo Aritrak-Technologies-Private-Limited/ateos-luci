@@ -1,0 +1,25 @@
+#!/bin/sh
+
+. /usr/share/event-notifier/event-notifier.sh
+
+section="hotplug"
+event_type="${1:-hotplug}"
+subsystem="${SUBSYSTEM:-${ACTION:-unknown}}"
+device="${DEVICE:-${INTERFACE:-${DEVPATH:-unknown}}}"
+action="${ACTION:-unknown}"
+
+service_enabled || exit 0
+event_enabled "$section" || exit 0
+
+matched=0
+for configured in $(uci_get_list "$section" subsystem); do
+	[ "$configured" = "$event_type" ] && matched=1
+	[ "$configured" = "$subsystem" ] && matched=1
+	[ "$configured" = "$action" ] && matched=1
+done
+[ "$matched" = "1" ] || exit 0
+
+emit_event "$section" "$event_type" "$(uci_get "$section" severity)" hotplug \
+	"Hotplug $action: $device" \
+	"subsystem=$subsystem action=$action device=$device interface=${INTERFACE:-}" \
+	"hotplug:$subsystem:$action:$device"

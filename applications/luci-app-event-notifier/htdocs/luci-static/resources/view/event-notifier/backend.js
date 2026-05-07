@@ -37,7 +37,7 @@ return view.extend({
 					]),
 					E('tr', { 'class': 'tr' }, [
 						E('td', { 'class': 'td' }, _('Login event parsing')),
-						E('td', { 'class': 'td' }, 'logread, syslog auth/dropbear/telnet messages')
+						E('td', { 'class': 'td' }, 'event-notifier-logwatch, logread -f, syslog auth/dropbear/telnet/luci messages')
 					]),
 					E('tr', { 'class': 'tr' }, [
 						E('td', { 'class': 'td' }, _('Hotplug events')),
@@ -46,6 +46,10 @@ return view.extend({
 					E('tr', { 'class': 'tr' }, [
 						E('td', { 'class': 'td' }, _('Ethernet link events')),
 						E('td', { 'class': 'td' }, 'netifd/ubus events or netlink carrier state')
+					]),
+					E('tr', { 'class': 'tr' }, [
+						E('td', { 'class': 'td' }, _('Syslog-derived events')),
+						E('td', { 'class': 'td' }, 'LuCI login, firewall/security, service health, DHCP lease, VPN, SIM service and DNS/network messages')
 					])
 				])
 			]),

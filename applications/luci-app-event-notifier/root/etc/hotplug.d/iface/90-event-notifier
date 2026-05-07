@@ -1,0 +1,4 @@
+#!/bin/sh
+
+[ -x /usr/libexec/event-notifier-hotplug ] || exit 0
+/usr/libexec/event-notifier-hotplug iface

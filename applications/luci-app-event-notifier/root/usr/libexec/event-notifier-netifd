@@ -1,0 +1,62 @@
+#!/bin/sh
+
+. /usr/share/event-notifier/event-notifier.sh
+
+emit_netifd_event() {
+	local line="$1"
+	local iface action state section="netifd_interface"
+
+	service_enabled || return 0
+	event_enabled "$section" || return 0
+
+	iface="$(printf '%s' "$line" | sed -n 's/.*"interface"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+	action="$(printf '%s' "$line" | sed -n 's/.*"action"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+	[ -n "$iface" ] || iface="$(printf '%s' "$line" | sed -n 's/.*"ifname"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+	[ -n "$iface" ] || return 0
+
+	case "$line" in
+		*ifup*|*\"up\"*|*\"available\":true*) state="up" ;;
+		*ifdown*|*\"down\"*|*\"available\":false*) state="down" ;;
+		*) state="$action" ;;
+	esac
+	[ -n "$state" ] || return 0
+
+	event_has_value "$section" interface "$iface" || return 0
+	event_has_value "$section" state "$state" || return 0
+
+	emit_event "$section" netifd_interface "$(uci_get "$section" severity)" netifd \
+		"Interface $iface $state" "$line" "netifd:$iface:$state"
+}
+
+emit_ethernet_event() {
+	local line="$1"
+	local iface state section="ethernet_link"
+
+	service_enabled || return 0
+	event_enabled "$section" || return 0
+
+	iface="$(printf '%s' "$line" | sed -n 's/.*"ifname"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p; s/.*"device"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+	[ -n "$iface" ] || return 0
+
+	case "$line" in
+		*\"link-up\"*|*\"carrier\":true*) state="plugged" ;;
+		*\"link-down\"*|*\"carrier\":false*) state="unplugged" ;;
+		*) return 0 ;;
+	esac
+
+	event_has_value "$section" interface "$iface" || return 0
+	[ "$state" = "plugged" ] && uci_get_bool "$section" match_plugged || {
+		[ "$state" = "unplugged" ] && uci_get_bool "$section" match_unplugged || return 0
+	}
+
+	emit_event "$section" ethernet_link "$(uci_get "$section" severity)" netifd \
+		"Ethernet $iface $state" "$line" "ethernet_link:$iface:$state"
+}
+
+ensure_runtime
+ubus listen 2>/dev/null | while IFS= read -r line; do
+	case "$line" in
+		*network.interface*) emit_netifd_event "$line" ;;
+		*network.device*) emit_ethernet_event "$line" ;;
+	esac
+done
