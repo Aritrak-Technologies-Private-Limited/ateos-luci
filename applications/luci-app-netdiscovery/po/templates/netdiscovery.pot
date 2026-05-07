@@ -1,0 +1,17 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+msgid "Net Discovery"
+msgstr ""
+
+msgid "Network Discovery"
+msgstr ""
+
+msgid "Connected Devices"
+msgstr ""
+
+msgid "Interfaces"
+msgstr ""
+
+msgid "LLDP Neighbors"
+msgstr ""

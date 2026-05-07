@@ -1,0 +1,13 @@
+{
+	"admin/status/netdiscovery": {
+		"title": "Net Discovery",
+		"order": 7,
+		"action": {
+			"type": "view",
+			"path": "status/netdiscovery"
+		},
+		"depends": {
+			"acl": [ "luci-app-netdiscovery" ]
+		}
+	}
+}

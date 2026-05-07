@@ -1,0 +1,12 @@
+{
+	"luci-app-netdiscovery": {
+		"description": "Grant access to local network discovery data",
+		"read": {
+			"ubus": {
+				"luci.netdiscovery": [
+					"get"
+				]
+			}
+		}
+	}
+}
