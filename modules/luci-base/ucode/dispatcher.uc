@@ -407,6 +407,9 @@ function build_pagetree() {
 							if (type(spec[k]) == t)
 								node[k] = spec[k];
 
+						if (node.title)
+							node.default_title = node.title;
+
 						/* Preserve distinct actions for wildcard vs. base path */
 						if (has_wildcard && type(spec.action) == 'object')
 							node.wildcardaction = spec.action;
@@ -432,6 +435,37 @@ function build_pagetree() {
 	return tree;
 }
 
+function apply_title_overrides(node, path, overrides) {
+	if (node?.default_title)
+		node.title = node.default_title;
+
+	let key = join('/', path ?? []);
+
+	if (key in overrides)
+		node.title = overrides[key];
+
+	for (let name, child in node?.children)
+		apply_title_overrides(child, [ ...(path ?? []), name ], overrides);
+}
+
+function load_title_overrides() {
+	let overrides = {};
+
+	try {
+		uci.load('appnames');
+		uci.foreach('appnames', 'rename', (s) => {
+			let path = trim(s.path ?? '', '/ \t\r\n');
+			let title = trim(s.title ?? '');
+
+			if (s.enabled != '0' && path && title)
+				overrides[path] = title;
+		});
+	}
+	catch {}
+
+	return overrides;
+}
+
 function apply_tree_acls(node, acl) {
 	for (let name, spec in node?.children)
 		apply_tree_acls(spec, acl);
@@ -446,6 +480,8 @@ function apply_tree_acls(node, acl) {
 
 function menu_json(acl) {
 	tree ??= build_pagetree();
+
+	apply_title_overrides(tree, [], load_title_overrides());
 
 	if (acl)
 		apply_tree_acls(tree, acl);

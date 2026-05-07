@@ -74,8 +74,15 @@ function arrangeSimSections(node) {
 		node.insertBefore(E('style', { 'id': 'qtcm-sim-grid-style' }, [
 			'.qtcm-sim-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;align-items:start}',
 			'.qtcm-sim-grid>.cbi-section{margin:0;min-width:0}',
-			'.qtcm-sim-grid .cbi-value-title{min-width:10rem}',
-			'@media(max-width:900px){.qtcm-sim-grid{grid-template-columns:1fr}}'
+			'.qtcm-sim-grid .cbi-value{display:grid;grid-template-columns:11rem minmax(0,1fr);gap:.75rem;align-items:center;margin:.7rem 0}',
+			'.qtcm-sim-grid .cbi-value-title{float:none;width:auto;min-width:0;padding:0;text-align:right;line-height:1.4}',
+			'.qtcm-sim-grid .cbi-value-field{margin:0;min-width:0;display:flex;align-items:center;gap:.4rem}',
+			'.qtcm-sim-grid .cbi-value-field input:not([type="checkbox"]):not([type="radio"]),.qtcm-sim-grid .cbi-value-field select{width:100%;max-width:100%;box-sizing:border-box}',
+			'.qtcm-sim-grid .cbi-value-field .cbi-button{flex:0 0 auto}',
+			'.qtcm-sim-grid .cbi-value-field output{display:inline-block;line-height:1.4}',
+			'@media(max-width:1200px){.qtcm-sim-grid .cbi-value{grid-template-columns:9rem minmax(0,1fr)}}',
+			'@media(max-width:900px){.qtcm-sim-grid{grid-template-columns:1fr}.qtcm-sim-grid .cbi-value{grid-template-columns:11rem minmax(0,1fr)}}',
+			'@media(max-width:520px){.qtcm-sim-grid .cbi-value{grid-template-columns:1fr}.qtcm-sim-grid .cbi-value-title{text-align:left}}'
 		]), node.firstChild || null);
 	}
 
