@@ -214,6 +214,37 @@ function merge_wireless_clients(devices) {
 	}
 }
 
+function merge_host_hints(devices) {
+	let hints = null;
+
+	try {
+		hints = ubus.call('luci-rpc', 'getHostHints', {});
+	}
+	catch (e) {
+		return;
+	}
+
+	for (let mac, hint in hints || {}) {
+		let ips = [];
+
+		for (let ip, active in hint?.ipaddrs || {})
+			push(ips, ip);
+
+		let dev = ensure_device(devices, mac, ips?.[0]);
+
+		if (!dev)
+			continue;
+
+		if (hint.name && !dev.hostname)
+			dev.hostname = hint.name;
+
+		if (dev.type == 'unknown')
+			dev.type = 'lan';
+
+		add_source(dev, 'host-hints');
+	}
+}
+
 function load_interfaces() {
 	let dump = null;
 	let interfaces = [];
@@ -336,6 +367,7 @@ const methods = {
 			merge_dhcp_leases(devices);
 			merge_neighbors(devices);
 			merge_wireless_clients(devices);
+			merge_host_hints(devices);
 
 			return {
 				router: load_router(),

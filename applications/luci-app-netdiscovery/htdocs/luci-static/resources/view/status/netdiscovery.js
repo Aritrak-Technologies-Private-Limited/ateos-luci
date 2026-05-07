@@ -256,7 +256,11 @@ function renderNeighbors(data) {
 
 return view.extend({
 	load() {
-		return L.resolveDefault(callNetDiscovery(), {});
+		return callNetDiscovery().catch(function(err) {
+			return {
+				error: err.message || String(err)
+			};
+		});
 	},
 
 	render(data) {
@@ -281,6 +285,9 @@ return view.extend({
 			return callNetDiscovery().then(L.bind(function(next) {
 				this.update(next || {});
 			}, this)).catch(function(err) {
+				this.update({
+					error: err.message || String(err)
+				});
 				ui.addNotification(null, E('p', _('Unable to refresh net discovery data: %s').format(err.message)), 'warning');
 			});
 		}, this), 7);
@@ -293,6 +300,15 @@ return view.extend({
 
 		if (!body)
 			return;
+
+		if (data.error) {
+			body.replaceChildren(E('div', { 'class': 'alert-message warning' }, [
+				E('strong', _('Unable to load discovery data')),
+				E('br'),
+				data.error
+			]));
+			return;
+		}
 
 		body.replaceChildren(
 			renderSummary(data),
