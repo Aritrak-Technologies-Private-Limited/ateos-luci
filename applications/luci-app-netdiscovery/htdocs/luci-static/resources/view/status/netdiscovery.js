@@ -131,6 +131,7 @@ function renderGraph(data) {
 
 function renderSummary(data) {
 	const devices = data.devices || [];
+	const warnings = (data.errors || []).length;
 
 	return E('div', { 'class': 'netdiscovery-summary' }, [
 		E('div', { 'class': 'netdiscovery-metric' }, [
@@ -148,6 +149,10 @@ function renderSummary(data) {
 		E('div', { 'class': 'netdiscovery-metric' }, [
 			E('strong', data.neighbors?.length || 0),
 			E('span', _('LLDP neighbors'))
+		]),
+		E('div', { 'class': 'netdiscovery-metric' }, [
+			E('strong', warnings),
+			E('span', _('Warnings'))
 		])
 	]);
 }
@@ -310,7 +315,7 @@ return view.extend({
 			return;
 		}
 
-		body.replaceChildren(
+		const children = [
 			renderSummary(data),
 			E('div', { 'class': 'netdiscovery-layout' }, [
 				E('div', { 'class': 'netdiscovery-panel' }, [
@@ -325,6 +330,18 @@ return view.extend({
 				]),
 				E('div', { 'class': 'netdiscovery-gap' }),
 				renderDeviceTable(data)
-			);
+			];
+
+		if ((data.errors || []).length) {
+			children.splice(1, 0, E('div', { 'class': 'alert-message warning' }, [
+				E('strong', _('Some discovery sources failed')),
+				E('br'),
+				(data.errors || []).map(function(err) {
+					return '%s: %s'.format(err.source || _('unknown'), err.error || _('error'));
+				}).join(', ')
+			]));
+		}
+
+		body.replaceChildren.apply(body, children);
 	}
 });

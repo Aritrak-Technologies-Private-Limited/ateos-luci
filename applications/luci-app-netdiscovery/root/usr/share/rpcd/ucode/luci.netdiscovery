@@ -345,35 +345,62 @@ function load_lldp_neighbors() {
 	return neighbors;
 }
 
+function run_source(errors, name, fn) {
+	try {
+		return fn();
+	}
+	catch (e) {
+		push(errors, {
+			source: name,
+			error: e.message || 'failed'
+		});
+
+		return null;
+	}
+}
+
 function devices_array(devices) {
 	let result = [];
 
 	for (let key, dev in devices)
 		push(result, dev);
 
-	return sort(result, function(a, b) {
-		let an = a.hostname || a.ip || a.mac || '';
-		let bn = b.hostname || b.ip || b.mac || '';
-
-		return an > bn ? 1 : (an < bn ? -1 : 0);
-	});
+	return result;
 }
 
 const methods = {
 	get: {
 		call: function() {
 			let devices = {};
+			let errors = [];
+			let interfaces = [];
+			let neighbors = [];
 
-			merge_dhcp_leases(devices);
-			merge_neighbors(devices);
-			merge_wireless_clients(devices);
-			merge_host_hints(devices);
+			run_source(errors, 'dhcp', function() {
+				merge_dhcp_leases(devices);
+			});
+
+			run_source(errors, 'neighbor', function() {
+				merge_neighbors(devices);
+			});
+
+			run_source(errors, 'hostapd', function() {
+				merge_wireless_clients(devices);
+			});
+
+			run_source(errors, 'host-hints', function() {
+				merge_host_hints(devices);
+			});
+
+			interfaces = run_source(errors, 'interfaces', load_interfaces) || [];
+			neighbors = run_source(errors, 'lldp', load_lldp_neighbors) || [];
 
 			return {
 				router: load_router(),
 				devices: devices_array(devices),
-				interfaces: load_interfaces(),
-				neighbors: load_lldp_neighbors(),
+				interfaces: interfaces,
+				neighbors: neighbors,
+				errors: errors,
 				updated: time()
 			};
 		}
