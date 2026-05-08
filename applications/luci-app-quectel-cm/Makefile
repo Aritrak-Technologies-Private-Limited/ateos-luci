@@ -3,7 +3,7 @@ include $(TOPDIR)/rules.mk
 PKG_VERSION:=1.0.0
 PKG_RELEASE:=2
 
-PKG_LICENSE:=GPL-2.0-only
+PKG_LICENSE:=LicenseRef-Quectel-QConnect-CM
 PKG_MAINTAINER:=Shiva Aradi <developer.aradi@gmail.com>
 
 LUCI_TITLE:=LuCI support for Quectel Connection Manager
