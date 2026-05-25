@@ -1,0 +1,40 @@
+opengt
+ set com 115200n81
+ set comecho off
+ set senddelay 0.02
+ waitquiet 0.2 0.2
+ flash 0.1
+
+:imei
+ send "AT+CGSN=1^m"
+ waitfor 5 "+CGSN:","ERROR"
+ if % = 0 goto print_imei_prefixed
+ send "AT+CGSN^m"
+ get 1 "^m" $n
+ print "+IMEI: ",$n,"\n"
+ waitfor 2 "OK","ERROR"
+ goto iccid
+
+:print_imei_prefixed
+ get 1 "^m" $n
+ print "+CGSN:",$n,"\n"
+ waitfor 2 "OK","ERROR"
+
+:iccid
+ send "AT+QCCID^m"
+ waitfor 5 "+QCCID:","ERROR"
+ if % = 0 goto print_iccid
+ goto imsi
+
+:print_iccid
+ get 1 "^m" $n
+ print "+QCCID:",$n,"\n"
+ waitfor 2 "OK","ERROR"
+
+:imsi
+ send "AT+CIMI^m"
+ get 1 "^m" $n
+ print "+IMSI: ",$n,"\n"
+
+:continue
+ exit 0

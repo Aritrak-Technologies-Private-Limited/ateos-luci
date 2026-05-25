@@ -282,6 +282,143 @@ parse_band_info() {
 	printf '%s' "$value"
 }
 
+parse_imei() {
+	local raw value
+
+	raw="$1"
+	value="$(printf '%s\n' "$raw" | awk '/\+CGSN:|\+IMEI:/ {
+		value = $0;
+		gsub(/[^0-9]/, "", value);
+		if (length(value) >= 14 && length(value) <= 17) {
+			print value;
+			exit;
+		}
+	}')"
+	[ -n "$value" ] || value="Unknown"
+	printf '%s' "$value"
+}
+
+parse_iccid() {
+	local raw value
+
+	raw="$1"
+	value="$(printf '%s\n' "$raw" | awk '/\+QCCID:/ {
+		value = $0;
+		gsub(/[^0-9]/, "", value);
+		if (length(value) >= 15 && length(value) <= 22) {
+			print value;
+			exit;
+		}
+	}')"
+	[ -n "$value" ] || value="Unknown"
+	printf '%s' "$value"
+}
+
+parse_imsi() {
+	local raw value
+
+	raw="$1"
+	value="$(printf '%s\n' "$raw" | awk '/\+IMSI:/ {
+		value = $0;
+		gsub(/[^0-9]/, "", value);
+		if (length(value) >= 5 && length(value) <= 18) {
+			print value;
+			exit;
+		}
+	}')"
+	[ -n "$value" ] || value="Unknown"
+	printf '%s' "$value"
+}
+
+parse_sim_slot() {
+	local raw value
+
+	raw="$1"
+	value="$(printf '%s\n' "$raw" | awk -F':' '/\+QDSIM:/ && $2 !~ /\(/ {
+		value = $2;
+		gsub(/[^0-9]/, "", value);
+		if (value != "") {
+			print value;
+			exit;
+		}
+	}')"
+
+	case "$value" in
+		0)
+			printf '%s' "SIM 1"
+			;;
+		1)
+			printf '%s' "SIM 2"
+			;;
+		*)
+			printf '%s' "Unknown"
+			;;
+	esac
+}
+
+parse_sim_slots_supported() {
+	local raw value
+
+	raw="$1"
+	value="$(printf '%s\n' "$raw" | awk -F':' '/\+QDSIM:/ && $2 ~ /\(/ {
+		value = $2;
+		gsub(/[^0-9,]/, "", value);
+		split(value, ids, ",");
+		for (i in ids) {
+			if (ids[i] != "")
+				seen[ids[i]] = 1;
+		}
+		for (i in seen)
+			count++;
+		if (count > 0) {
+			print count;
+			exit;
+		}
+	}')"
+	[ -n "$value" ] || value="Unknown"
+	printf '%s' "$value"
+}
+
+parse_dsss_status() {
+	local raw value
+
+	raw="$1"
+	value="$(printf '%s\n' "$raw" | awk -F',' '/\+QDSIMCFG:/ {
+		value = $2;
+		gsub(/[^0-9]/, "", value);
+		if (value != "") {
+			print value;
+			exit;
+		}
+	}')"
+
+	case "$value" in
+		1)
+			printf '%s' "Enabled"
+			;;
+		0)
+			printf '%s' "Disabled"
+			;;
+		*)
+			printf '%s' "Unknown"
+			;;
+	esac
+}
+
+connected_sim_count() {
+	case "$1" in
+		Yes|Yes\ \(*)
+			printf '%s' "1"
+			;;
+		No)
+			printf '%s' "0"
+			;;
+		*)
+			printf '%s' "Unknown"
+			;;
+	esac
+}
+
 parse_signal_text() {
 	local raw lower value
 
@@ -394,7 +531,8 @@ main() {
 	local running=0
 	local interface at_port
 	local modem_source sim_status network_status network_type band_info provider signal_bars signal_text signal_dbm signal_snr
-	local sim_raw reg_raw provider_raw serving_raw csq_raw
+	local imei iccid imsi active_sim_slot sim_slots_supported dsss_status connected_sims
+	local sim_raw reg_raw provider_raw serving_raw csq_raw identity_raw sim_slot_raw
 	local active_sim sim1_info sim2_info
 
 	if detect_service_running; then
@@ -414,12 +552,21 @@ main() {
 		provider_raw="$(run_gcom_script "$at_port" "carrier.qtcmgcom")"
 		serving_raw="$(run_gcom_script "$at_port" "servingcell.qtcmgcom")"
 		csq_raw="$(run_gcom_script "$at_port" "csq.qtcmgcom")"
+		identity_raw="$(run_gcom_script "$at_port" "identity.qtcmgcom")"
+		sim_slot_raw="$(run_gcom_script "$at_port" "sim_slot.qtcmgcom")"
 
 		modem_source="gcom via $at_port"
 		sim_status="$(parse_sim_status "$sim_raw")"
 		network_status="$(parse_reg_status "$reg_raw")"
 		network_type="$(parse_network_type "$serving_raw $provider_raw")"
 		band_info="$(parse_band_info "$serving_raw")"
+		imei="$(parse_imei "$identity_raw")"
+		iccid="$(parse_iccid "$identity_raw")"
+		imsi="$(parse_imsi "$identity_raw")"
+		active_sim_slot="$(parse_sim_slot "$sim_slot_raw")"
+		sim_slots_supported="$(parse_sim_slots_supported "$sim_slot_raw")"
+		dsss_status="$(parse_dsss_status "$sim_slot_raw")"
+		connected_sims="$(connected_sim_count "$sim_status")"
 		provider="$(parse_provider "$provider_raw")"
 		signal_bars="$(signal_bars_from_csq "$csq_raw")"
 		signal_dbm="$(signal_dbm_from_csq "$csq_raw")"
@@ -433,6 +580,13 @@ main() {
 		network_status="Unknown"
 		network_type="Unknown"
 		band_info="Unknown"
+		imei="Unknown"
+		iccid="Unknown"
+		imsi="Unknown"
+		active_sim_slot="Unknown"
+		sim_slots_supported="Unknown"
+		dsss_status="Unknown"
+		connected_sims="Unknown"
 		provider="Unknown"
 		signal_bars="Unknown"
 		signal_dbm="Unknown"
@@ -448,6 +602,13 @@ main() {
 	printf '"network_status":"%s",' "$(json_escape "$network_status")"
 	printf '"network_type":"%s",' "$(json_escape "$network_type")"
 	printf '"band_info":"%s",' "$(json_escape "$band_info")"
+	printf '"imei":"%s",' "$(json_escape "$imei")"
+	printf '"iccid":"%s",' "$(json_escape "$iccid")"
+	printf '"imsi":"%s",' "$(json_escape "$imsi")"
+	printf '"active_sim_slot":"%s",' "$(json_escape "$active_sim_slot")"
+	printf '"sim_slots_supported":"%s",' "$(json_escape "$sim_slots_supported")"
+	printf '"dsss_status":"%s",' "$(json_escape "$dsss_status")"
+	printf '"connected_sims":"%s",' "$(json_escape "$connected_sims")"
 	printf '"provider":"%s",' "$(json_escape "$provider")"
 	printf '"signal_bars":"%s",' "$(json_escape "$signal_bars")"
 	printf '"signal_dbm":"%s",' "$(json_escape "$signal_dbm")"
