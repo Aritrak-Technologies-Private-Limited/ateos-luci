@@ -1,0 +1,41 @@
+opengt
+ set com 115200n81
+ set comecho off
+ set senddelay 0.02
+ waitquiet 0.2 0.2
+ flash 0.1
+
+:query_selected
+ send "AT+QDSIM?^m"
+ waitfor 5 "+QDSIM:","ERROR"
+ if % = 0 goto print_selected
+ goto query_supported
+
+:print_selected
+ get 1 "^m" $n
+ print "+QDSIM:",$n,"\n"
+ waitfor 2 "OK","ERROR"
+
+:query_supported
+ send "AT+QDSIM=?^m"
+ waitfor 5 "+QDSIM:","ERROR"
+ if % = 0 goto print_supported
+ goto query_dsss
+
+:print_supported
+ get 1 "^m" $n
+ print "+QDSIM:",$n,"\n"
+ waitfor 2 "OK","ERROR"
+
+:query_dsss
+ send "AT+QDSIMCFG=\"dsss\"^m"
+ waitfor 5 "+QDSIMCFG:","ERROR"
+ if % = 0 goto print_dsss
+ goto continue
+
+:print_dsss
+ get 1 "^m" $n
+ print "+QDSIMCFG:",$n,"\n"
+
+:continue
+ exit 0

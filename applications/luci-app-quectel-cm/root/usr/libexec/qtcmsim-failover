@@ -206,11 +206,11 @@ switch_to_sim() {
 	printf '%s\n' "$(now)" > "$LAST_SWITCH_FILE"
 	rm -f "$LOSS_SINCE_FILE"
 
+	call_post_switch_hook "$new_sim" "$old_sim" "$reason" "$iface" "$signal_dbm"
+
 	if [ "$(cfg restart_qtcm_after_switch 1)" = "1" ] && [ -x /etc/init.d/qtcm ]; then
 		/etc/init.d/qtcm restart >/dev/null 2>&1 || log "qtcm restart failed after SIM switch"
 	fi
-
-	call_post_switch_hook "$new_sim" "$old_sim" "$reason" "$iface" "$signal_dbm"
 }
 
 handle_network_loss_reboot() {
