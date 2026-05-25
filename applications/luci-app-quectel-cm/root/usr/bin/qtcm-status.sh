@@ -68,7 +68,9 @@ detect_service_running() {
 		pgrep -f '(^|[[:space:]])/sbin/quectel-CM([[:space:]]|$)' >/dev/null 2>&1 && return 0
 	fi
 
-	pidof quectel-CM >/dev/null 2>&1
+	pidof quectel-CM >/dev/null 2>&1 && return 0
+
+	ps 2>/dev/null | grep -F '/sbin/quectel-CM' | grep -v grep >/dev/null 2>&1
 }
 
 detect_interface() {
@@ -146,7 +148,7 @@ parse_sim_status() {
 		*"SIM PIN"*|*"SIM PUK"*)
 			printf '%s' "Yes (locked)"
 			;;
-		*"SIM ERROR"*|*"Check SIM is inserted"*)
+		*"SIM ERROR"*|*"SIM not inserted"*|*"Check SIM is inserted"*)
 			printf '%s' "No"
 			;;
 		*)
@@ -156,17 +158,72 @@ parse_sim_status() {
 }
 
 parse_reg_status() {
-	local raw stat
+	local raw stat saw_not_registered=0
+
+	raw="$1"
+	for stat in $(printf '%s\n' "$raw" | awk -F',' '/\+C(E|G)?REG:/ && NF >= 2 { gsub(/[^0-9]/, "", $2); print $2 }'); do
+		case "$stat" in
+			1|5)
+				printf '%s' "Yes"
+				return
+				;;
+			0|2|3|4)
+				saw_not_registered=1
+				;;
+		esac
+	done
+
+	[ "$saw_not_registered" = "1" ] && printf '%s' "No" || printf '%s' "Unknown"
+}
+
+parse_provider() {
+	local raw provider
 
 	raw="$(trim_line "$1")"
-	stat="$(printf '%s' "$raw" | awk -F',' 'NF >= 2 { gsub(/[^0-9]/, "", $2); print $2; exit }')"
+	provider="$(printf '%s\n' "$raw" | awk -F',' '/\+QSPN:/ {
+		for (i = 1; i <= 3 && i <= NF; i++) {
+			value = $i;
+			sub(/^.*\+QSPN:[[:space:]]*/, "", value);
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value);
+			gsub(/^"|"$/, "", value);
+			if (value != "") {
+				print value;
+				exit;
+			}
+		}
+	}')"
+	[ -n "$provider" ] || provider="$(printf '%s\n' "$raw" | awk -F',' '/\+COPS:/ && NF >= 3 {
+		value = $3;
+		gsub(/^[[:space:]]+|[[:space:]]+$/, "", value);
+		gsub(/^"|"$/, "", value);
+		print value;
+		exit;
+	}')"
+	[ -n "$provider" ] || provider="Unknown"
+	printf '%s' "$provider"
+}
 
-	case "$stat" in
-		1|5)
-			printf '%s' "Yes"
+network_type_from_cops() {
+	local raw act
+
+	raw="$1"
+	act="$(printf '%s\n' "$raw" | awk -F',' '/\+COPS:/ {
+		gsub(/[^0-9]/, "", $4);
+		if ($4 != "") {
+			print $4;
+			exit;
+		}
+	}')"
+
+	case "$act" in
+		7)
+			printf '%s' "4G"
 			;;
-		0|2|3|4)
-			printf '%s' "No"
+		0|1|3)
+			printf '%s' "2G"
+			;;
+		2|4|5|6)
+			printf '%s' "3G"
 			;;
 		*)
 			printf '%s' "Unknown"
@@ -174,18 +231,8 @@ parse_reg_status() {
 	esac
 }
 
-parse_provider() {
-	local raw provider
-
-	raw="$(trim_line "$1")"
-	provider="$(printf '%s' "$raw" | sed -n 's/.*,"\([^"]*\)".*/\1/p' | head -n 1)"
-	[ -n "$provider" ] || provider="$(printf '%s' "$raw" | awk -F',' 'NF { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0); print $0 }' | head -n 1)"
-	[ -n "$provider" ] || provider="Unknown"
-	printf '%s' "$provider"
-}
-
 parse_network_type() {
-	local raw lower
+	local raw lower value
 
 	raw="$1"
 	lower="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')"
@@ -204,9 +251,35 @@ parse_network_type() {
 			printf '%s' "2G"
 			;;
 		*)
-			printf '%s' "Unknown"
+			value="$(network_type_from_cops "$raw")"
+			printf '%s' "$value"
 			;;
 	esac
+}
+
+parse_band_info() {
+	local raw value
+
+	raw="$1"
+	value="$(printf '%s\n' "$raw" | awk -F',' '/\+QENG:/ {
+		for (i = 1; i <= NF; i++) {
+			field = $i;
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", field);
+			gsub(/"/, "", field);
+			if (field == "LTE" && NF >= 10) {
+				pci = $8;
+				earfcn = $9;
+				band = $10;
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", pci);
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", earfcn);
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", band);
+				printf "Band %s, EARFCN %s, PCI %s", band, earfcn, pci;
+				exit;
+			}
+		}
+	}' | head -n 1)"
+	[ -n "$value" ] || value="Unknown"
+	printf '%s' "$value"
 }
 
 parse_signal_text() {
@@ -220,6 +293,27 @@ parse_signal_text() {
 		[ -n "$value" ] && { printf '%s' "$value"; return; }
 	fi
 
+	value="$(printf '%s\n' "$raw" | awk -F',' '/\+QENG:/ {
+		for (i = 1; i <= NF; i++) {
+			field = $i;
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", field);
+			gsub(/"/, "", field);
+			if (field == "LTE" && NF >= 17) {
+				rsrp = $14;
+				rsrq = $15;
+				rssi = $16;
+				sinr = $17;
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", rsrp);
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", rsrq);
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", rssi);
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", sinr);
+				printf "RSRP %s dBm, RSRQ %s dB, RSSI %s dBm, SINR %s dB", rsrp, rsrq, rssi, sinr;
+				exit;
+			}
+		}
+	}' | head -n 1)"
+	[ -n "$value" ] && { printf '%s' "$value"; return; }
+
 	value="$(printf '%s' "$raw" | awk -F',' 'NF >= 1 { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print $0 }' | head -n 1)"
 	[ -n "$value" ] || value="$(trim_line "$raw")"
 	[ -n "$value" ] || value="Unknown"
@@ -232,6 +326,19 @@ parse_signal_snr() {
 	raw="$1"
 	value="$(printf '%s' "$raw" | sed -n 's/.*SNR[^-0-9]*\(-\{0,1\}[0-9][0-9]*\).*/\1/p' | head -n 1)"
 	[ -n "$value" ] || value="$(printf '%s' "$raw" | sed -n 's/.*SINR[^-0-9]*\(-\{0,1\}[0-9][0-9]*\).*/\1/p' | head -n 1)"
+	[ -n "$value" ] || value="$(printf '%s\n' "$raw" | awk -F',' '/\+QENG:/ {
+		for (i = 1; i <= NF; i++) {
+			field = $i;
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", field);
+			gsub(/"/, "", field);
+			if (field == "LTE" && NF >= 17) {
+				value = $17;
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", value);
+				print value;
+				exit;
+			}
+		}
+	}' | head -n 1)"
 	[ -n "$value" ] || value="Unknown"
 	printf '%s' "$value"
 }
@@ -286,7 +393,7 @@ signal_dbm_from_csq() {
 main() {
 	local running=0
 	local interface at_port
-	local modem_source sim_status network_status network_type provider signal_bars signal_text signal_dbm signal_snr
+	local modem_source sim_status network_status network_type band_info provider signal_bars signal_text signal_dbm signal_snr
 	local sim_raw reg_raw provider_raw serving_raw csq_raw
 	local active_sim sim1_info sim2_info
 
@@ -312,17 +419,20 @@ main() {
 		sim_status="$(parse_sim_status "$sim_raw")"
 		network_status="$(parse_reg_status "$reg_raw")"
 		network_type="$(parse_network_type "$serving_raw $provider_raw")"
+		band_info="$(parse_band_info "$serving_raw")"
 		provider="$(parse_provider "$provider_raw")"
 		signal_bars="$(signal_bars_from_csq "$csq_raw")"
 		signal_dbm="$(signal_dbm_from_csq "$csq_raw")"
 		signal_snr="$(parse_signal_snr "$serving_raw")"
-		signal_text="$(trim_line "$csq_raw")"
-		[ -n "$signal_text" ] || signal_text="$(parse_signal_text "$serving_raw")"
+		signal_text="$(parse_signal_text "$serving_raw")"
+		[ "$signal_text" != "Unknown" ] || signal_text="$(trim_line "$csq_raw")"
+		[ -n "$signal_text" ] || signal_text="Unknown"
 	else
 		modem_source="No modem AT port detected"
 		sim_status="Unknown"
 		network_status="Unknown"
 		network_type="Unknown"
+		band_info="Unknown"
 		provider="Unknown"
 		signal_bars="Unknown"
 		signal_dbm="Unknown"
@@ -337,6 +447,7 @@ main() {
 	printf '"sim_status":"%s",' "$(json_escape "$sim_status")"
 	printf '"network_status":"%s",' "$(json_escape "$network_status")"
 	printf '"network_type":"%s",' "$(json_escape "$network_type")"
+	printf '"band_info":"%s",' "$(json_escape "$band_info")"
 	printf '"provider":"%s",' "$(json_escape "$provider")"
 	printf '"signal_bars":"%s",' "$(json_escape "$signal_bars")"
 	printf '"signal_dbm":"%s",' "$(json_escape "$signal_dbm")"

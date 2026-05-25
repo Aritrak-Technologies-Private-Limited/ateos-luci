@@ -6,12 +6,26 @@ opengt
  flash 0.1
 
 :start
+ send "AT+QSPN^m"
+ waitfor 5 "+QSPN:","ERROR"
+ if % = 0 goto print_qspn
+ goto cops
+
+:print_qspn
+ get 1 "^m" $n
+ print "+QSPN:",$n,"\n"
+
+:cops
+ send "AT+COPS=3,0^m"
+ waitfor 5 "OK","ERROR"
  send "AT+COPS?^m"
- get 1 " " $n
- get 1 "\r" $n
- let n = len($n)
- if n<1 goto continue
- print $n
+ waitfor 10 "+COPS:","ERROR"
+ if % = 0 goto print_cops
+ goto continue
+
+:print_cops
+ get 1 "^m" $n
+ print "+COPS:",$n,"\n"
 
 :continue
  exit 0

@@ -1,33 +1,34 @@
 opengt
     set com 115200n81
+    set comecho off
     set senddelay 0.05
     waitquiet 1 0.2
 :start
     flash 0.1
     send "AT+CMEE=2^m"
-    waitfor 5 "OK","ERR","ERROR"
+    waitfor 5 "OK","ERROR"
     send "AT+CPIN?^m"
-    waitfor 30 "SIM PUK","SIM PIN","READY","ERROR","ERR"
+    waitfor 5 "+CPIN: READY","+CPIN: SIM PIN","+CPIN: SIM PUK","+CME ERROR: SIM not inserted","ERROR"
     if % = -1 goto error
     if % = 0 goto ready
     if % = 1 goto getpin
-    if % = 2 goto ready
-    if % = 3 goto error
+    if % = 2 goto getpuk
+    if % = 3 goto nosim
     if % = 4 goto error
 :error
     print $s," ***SIM ERROR***\n"
-    print "Check device port configuration.\nCheck SIM is inserted\nTest SIM in a mobile phone?\n"
-    send "AT+CFUN=0^m"
-    waitfor 5 "OK","ERR","ERROR"
-    send "AT+CFUN=1^m"
-    waitfor 5 "OK","ERR","ERROR"
+    print "Check device port configuration.\n"
     exit 1
 :ready
     print "SIM ready\n"
     goto continue
 :getpin
-    waitfor 1 "2"
-    if % = 0 goto ready
-    print "\nNeed SIM PIN number "
+    print "SIM PIN required\n"
+    goto continue
+:getpuk
+    print "SIM PUK required\n"
+    goto continue
+:nosim
+    print "SIM not inserted\n"
 :continue
     exit 0

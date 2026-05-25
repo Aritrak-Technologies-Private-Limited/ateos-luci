@@ -6,13 +6,13 @@ opengt
  flash 0.1
 
 :start
- send "AT+CSQ\r"
- get 1 "\r" $s
- get 1 "^m" $s
- let x = len($s)
- let $s = $right($s, x-1)
- let x = len($s)
- let $s = $right($s, x-6)
- print $s
+ send "AT+CSQ^m"
+ waitfor 5 "+CSQ:","ERROR"
+ if % = 0 goto print_csq
+ goto continue
+
+:print_csq
+ get 1 "^m" $n
+ print "+CSQ:",$n,"\n"
 :continue
  exit 0

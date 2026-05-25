@@ -7,8 +7,12 @@ opengt
 
 :start
  send "AT+QENG=\"servingcell\"^m"
- get 1 "\r" $s
- get 1 "^m" $s
- print $s
+ waitfor 10 "+QENG:","ERROR"
+ if % = 0 goto print_qeng
+ goto continue
+
+:print_qeng
+ get 1 "^m" $n
+ print "+QENG:",$n,"\n"
 :continue
  exit 0
