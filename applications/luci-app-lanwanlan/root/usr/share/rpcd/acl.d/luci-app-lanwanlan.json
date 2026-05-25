@@ -1,0 +1,11 @@
+{
+	"luci-app-lanwanlan": {
+		"description": "Grant access to WAN/LAN interface configuration UI",
+		"read": {
+			"uci": [ "firewall", "network" ]
+		},
+		"write": {
+			"uci": [ "firewall", "network" ]
+		}
+	}
+}

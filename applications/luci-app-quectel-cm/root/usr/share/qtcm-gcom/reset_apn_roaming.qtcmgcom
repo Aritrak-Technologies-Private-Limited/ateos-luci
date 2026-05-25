@@ -1,0 +1,49 @@
+opengt
+ set com 115200n81
+ set comecho off
+ set senddelay 0.05
+ waitquiet 0.5 0.2
+ flash 0.1
+
+:start
+ print "Enable verbose modem errors\n"
+ send "AT+CMEE=2^m"
+ waitfor 5 "OK","ERROR"
+
+ print "Enable roaming\n"
+ send "AT+QCFG=\"roamservice\",2,1^m"
+ waitfor 5 "OK","ERROR"
+
+ print "Read roaming setting\n"
+ send "AT+QCFG=\"roamservice\"^m"
+ get 2 "" $s
+ print $s,"\n"
+
+ print "Clear APN profile 1 for auto APN IPv4v6\n"
+ send "AT+QICSGP=1,3,\"\",\"\",\"\",0^m"
+ waitfor 10 "OK","ERROR"
+
+ print "Clear PDP context 1 APN for auto APN IPv4v6\n"
+ send "AT+CGDCONT=1,\"IPV4V6\",\"\"^m"
+ waitfor 10 "OK","ERROR"
+
+ print "Read APN profile\n"
+ send "AT+QICSGP=1^m"
+ get 2 "" $s
+ print $s,"\n"
+
+ print "Read PDP contexts\n"
+ send "AT+CGDCONT?^m"
+ get 3 "" $s
+ print $s,"\n"
+
+ print "Set automatic operator selection\n"
+ send "AT+COPS=0^m"
+ waitfor 30 "OK","ERROR"
+
+ print "Reboot modem RF stack\n"
+ send "AT+CFUN=1,1^m"
+ waitfor 5 "OK","ERROR"
+
+ print "Done. Wait for the modem USB ports to return, then restart qtcm.\n"
+ exit 0

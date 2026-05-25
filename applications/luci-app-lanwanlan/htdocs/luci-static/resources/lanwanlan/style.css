@@ -1,0 +1,198 @@
+.lanwanlan-page {
+	color: #4b5563;
+}
+
+.lanwanlan-layout {
+	display: grid;
+	grid-template-columns: minmax(320px, 486px) minmax(520px, 1fr);
+	gap: 2.4rem;
+	align-items: start;
+}
+
+.lanwanlan-card {
+	background: #fff;
+	box-shadow: 0 2px 8px rgba(15, 23, 42, .08);
+	padding: 2.2rem 3.2rem 3.2rem;
+	min-height: 19rem;
+}
+
+.lanwanlan-config-card {
+	max-width: 486px;
+}
+
+.lanwanlan-card h2 {
+	color: #5e6670;
+	font-size: 1.15rem;
+	font-weight: normal;
+	line-height: 1.2;
+	margin: 0 0 2.2rem;
+}
+
+.lanwanlan-config-card h2 {
+	text-align: center;
+}
+
+.lanwanlan-field {
+	display: grid;
+	grid-template-columns: 128px minmax(0, 1fr);
+	gap: .9rem;
+	align-items: center;
+	margin-bottom: .75rem;
+}
+
+.lanwanlan-field label,
+.lanwanlan-radio-title {
+	color: #475569;
+	font-size: .95rem;
+}
+
+.lanwanlan-field input[type="text"],
+.lanwanlan-field input[type="number"],
+.lanwanlan-field select {
+	width: 100%;
+	height: 2.05rem;
+	padding: 0 .65rem;
+	border: 1px solid #8fdcc8;
+	border-radius: 2px;
+	background: #fff;
+	color: #334155;
+}
+
+.lanwanlan-field input:disabled {
+	background: #f3f4f6;
+	color: #64748b;
+}
+
+.lanwanlan-radio-stack {
+	display: grid;
+	gap: .35rem;
+}
+
+.lanwanlan-radio-stack label {
+	display: flex;
+	align-items: center;
+	gap: .45rem;
+	color: #4b5563;
+}
+
+.lanwanlan-radio-stack input[type="radio"] {
+	width: 1rem;
+	height: 1rem;
+	margin: 0;
+}
+
+.lanwanlan-actions {
+	display: flex;
+	justify-content: space-between;
+	margin-top: 2.1rem;
+	padding: 0 3.2rem 0 0;
+}
+
+.lanwanlan-button {
+	min-width: 4.7rem;
+	height: 2.2rem;
+	border: 0;
+	border-radius: 2px;
+	color: #fff;
+	cursor: pointer;
+	padding: 0 1.2rem;
+}
+
+.lanwanlan-button-save {
+	background: #49b49b;
+}
+
+.lanwanlan-button-clear {
+	background: #12354a;
+}
+
+.lanwanlan-table {
+	width: 100%;
+	border-collapse: collapse;
+	box-shadow: none;
+}
+
+.lanwanlan-table th,
+.lanwanlan-table td {
+	border-top: 1px solid #d8d8d8;
+	padding: .75rem .95rem;
+	text-align: left;
+	vertical-align: middle;
+}
+
+.lanwanlan-table thead th {
+	border-top: 0;
+	color: #56616d;
+	font-weight: bold;
+}
+
+.lanwanlan-table tbody tr:nth-child(2n) {
+	background: #fff;
+}
+
+.lanwanlan-badge {
+	display: inline-flex;
+	align-items: center;
+	border-radius: 3px;
+	background: #1f2933;
+	color: #fff;
+	font-size: .72rem;
+	font-weight: bold;
+	line-height: 1;
+	padding: .28rem .4rem;
+}
+
+.lanwanlan-row-actions {
+	display: flex;
+	gap: .55rem;
+	justify-content: flex-end;
+}
+
+.lanwanlan-icon-action {
+	color: #34b8a0;
+	background: transparent;
+	border: 0;
+	cursor: pointer;
+	font-size: .9rem;
+	min-height: auto;
+	padding: .1rem;
+}
+
+.lanwanlan-empty {
+	color: #8a94a3;
+	padding: 1.5rem 1rem;
+	text-align: center;
+}
+
+@media screen and (max-width: 1152px) {
+	.lanwanlan-layout {
+		grid-template-columns: 1fr;
+	}
+
+	.lanwanlan-config-card {
+		max-width: none;
+	}
+}
+
+@media screen and (max-width: 640px) {
+	.lanwanlan-card {
+		padding: 1.5rem;
+	}
+
+	.lanwanlan-field {
+		grid-template-columns: 1fr;
+		gap: .35rem;
+	}
+
+	.lanwanlan-actions {
+		padding-right: 0;
+	}
+
+	.lanwanlan-table {
+		min-width: 620px;
+	}
+
+	.lanwanlan-table-wrap {
+		overflow-x: auto;
+	}
+}

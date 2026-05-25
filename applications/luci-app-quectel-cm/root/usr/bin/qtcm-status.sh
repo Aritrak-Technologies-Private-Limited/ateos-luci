@@ -61,11 +61,14 @@ sim_summary() {
 
 detect_service_running() {
 	if command -v ubus >/dev/null 2>&1; then
-		ubus call service list '{"name":"qtcm"}' 2>/dev/null | grep -q '"running":true'
-		return $?
+		ubus call service list '{"name":"qtcm"}' 2>/dev/null | grep -q '"running":true' && return 0
 	fi
 
-	pgrep -f '/sbin/quectel-CM' >/dev/null 2>&1
+	if command -v pgrep >/dev/null 2>&1; then
+		pgrep -f '(^|[[:space:]])/sbin/quectel-CM([[:space:]]|$)' >/dev/null 2>&1 && return 0
+	fi
+
+	pidof quectel-CM >/dev/null 2>&1
 }
 
 detect_interface() {
