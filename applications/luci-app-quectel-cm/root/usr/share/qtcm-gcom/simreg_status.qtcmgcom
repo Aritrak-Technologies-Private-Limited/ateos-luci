@@ -7,19 +7,34 @@ opengt
 
 :start
  send "AT+CEREG?^m"
- get 1 "" $n
- let n = len($n)
- if n<1 goto gprs
+ waitfor 5 "+CEREG:","ERROR"
+ if % = 0 goto print_cereg
+ goto gprs
 
- print $n,"\n"
+:print_cereg
+ get 1 "^m" $n
+ print "+CEREG:",$n,"\n"
 
 :gprs
  send "AT+CGREG?^m"
- get 1 "" $n
- let n = len($n)
- if n<1 goto continue
+ waitfor 5 "+CGREG:","ERROR"
+ if % = 0 goto print_cgreg
+ goto cs
 
- print $n,"\n"
+:print_cgreg
+ get 1 "^m" $n
+ print "+CGREG:",$n,"\n"
+
+:cs
+ send "AT+CREG?^m"
+ waitfor 5 "+CREG:","ERROR"
+ if % = 0 goto print_creg
+ goto continue
+
+:print_creg
+ get 1 "^m" $n
+ print "+CREG:",$n,"\n"
+
 
 :continue
  exit 0
