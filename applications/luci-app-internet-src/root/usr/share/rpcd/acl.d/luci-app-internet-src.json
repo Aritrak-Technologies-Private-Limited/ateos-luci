@@ -1,0 +1,30 @@
+{
+	"luci-app-internet-src": {
+		"description": "Grant access to routed internet source status",
+		"read": {
+			"file": {
+				"/bin/ping": [ "exec" ],
+				"/sbin/route": [ "exec" ]
+			},
+			"ubus": {
+				"file": [ "exec" ],
+				"network.device": [ "status" ],
+				"network.interface": [ "dump" ]
+			},
+			"uci": [
+				"firewall",
+				"network",
+				"qtcm"
+			]
+		},
+		"write": {
+			"uci": [
+				"firewall",
+				"qtcm"
+			],
+			"ubus": {
+				"uci": [ "apply", "set" ]
+			}
+		}
+	}
+}
