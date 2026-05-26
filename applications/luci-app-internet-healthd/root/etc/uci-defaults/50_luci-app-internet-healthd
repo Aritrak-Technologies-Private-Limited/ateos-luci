@@ -1,0 +1,8 @@
+#!/bin/sh
+
+uci -q set internet-healthd.main.enabled='1'
+uci -q commit internet-healthd
+
+/etc/init.d/internet-healthd enable >/dev/null 2>&1
+
+exit 0

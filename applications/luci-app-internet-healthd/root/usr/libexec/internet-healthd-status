@@ -1,0 +1,19 @@
+#!/bin/sh
+
+status_file="$(uci -q get internet-healthd.main.status_file)"
+event_log="$(uci -q get internet-healthd.main.event_log)"
+[ -n "$status_file" ] || status_file="/var/run/internet-healthd/status.json"
+[ -n "$event_log" ] || event_log="/var/log/internet-healthd.log"
+
+case "$1" in
+	log)
+		tail -n "${2:-50}" "$event_log" 2>/dev/null
+		;;
+	*)
+		if [ -r "$status_file" ]; then
+			cat "$status_file"
+		else
+			printf '{"timestamp":0,"discovery":"all","interfaces":[]}'
+		fi
+		;;
+esac

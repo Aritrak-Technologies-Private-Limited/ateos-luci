@@ -1,0 +1,34 @@
+{
+	"admin/network/internet-healthd": {
+		"title": "Internet Health",
+		"order": 65,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-internet-healthd" ]
+		}
+	},
+	"admin/network/internet-healthd/overview": {
+		"title": "Overview",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "internet-healthd/overview"
+		},
+		"depends": {
+			"acl": [ "luci-app-internet-healthd" ]
+		}
+	},
+	"admin/network/internet-healthd/settings": {
+		"title": "Settings",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "internet-healthd/settings"
+		},
+		"depends": {
+			"acl": [ "luci-app-internet-healthd" ]
+		}
+	}
+}

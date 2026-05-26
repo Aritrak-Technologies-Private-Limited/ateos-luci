@@ -1,0 +1,369 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+CONFIG="internet-healthd"
+RUNTIME_DIR="/var/run/internet-healthd"
+STATE_DIR="$RUNTIME_DIR/state"
+
+json_escape() {
+	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g'
+}
+
+uci_get() {
+	uci -q get "$CONFIG.$1.$2"
+}
+
+uci_get_list() {
+	uci -q get "$CONFIG.$1.$2"
+}
+
+bool_enabled() {
+	case "$1" in
+		1|on|true|yes|enabled) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+is_ipv4() {
+	printf '%s' "$1" | grep -Eq '^[0-9]+(\.[0-9]+){3}$'
+}
+
+log_event() {
+	local message="$1" log_file now
+
+	log_file="$(uci_get main event_log)"
+	[ -n "$log_file" ] || log_file="/var/log/internet-healthd.log"
+	now="$(date '+%Y-%m-%d %H:%M:%S')"
+	printf '%s %s\n' "$now" "$message" >> "$log_file"
+	logger -t internet-healthd "$message"
+}
+
+discover_zone_networks() {
+	local zone="$1"
+
+	_zone_cb() {
+		local section="$1" name networks
+		config_get name "$section" name
+		[ "$name" = "$zone" ] || return 0
+		config_get networks "$section" network
+		printf '%s\n' $networks
+	}
+
+	config_load firewall
+	config_foreach _zone_cb zone
+}
+
+is_excluded_interface() {
+	local iface="$1" excluded
+
+	for excluded in $(uci_get_list main exclude_interface); do
+		[ "$iface" = "$excluded" ] && return 0
+	done
+
+	return 1
+}
+
+discover_all_interfaces() {
+	ubus call network.interface dump 2>/dev/null | jsonfilter -q -e '@.interface[*].interface' 2>/dev/null
+	for dev in /sys/class/net/*; do
+		[ -e "$dev" ] || continue
+		basename "$dev"
+	done
+}
+
+discover_configured_interfaces() {
+	uci_get_list main interface
+}
+
+discover_interfaces() {
+	local mode zone iface
+
+	mode="$(uci_get main discovery)"
+	[ -n "$mode" ] || mode="all"
+
+	case "$mode" in
+		firewall_zone)
+			zone="$(uci_get main firewall_zone)"
+			[ -n "$zone" ] || zone="wan"
+			discover_zone_networks "$zone"
+			;;
+		list)
+			discover_configured_interfaces
+			;;
+		*)
+			discover_all_interfaces
+			;;
+	esac | while read -r iface; do
+		[ -n "$iface" ] || continue
+		is_excluded_interface "$iface" && continue
+		printf '%s\n' "$iface"
+	done
+}
+
+iface_status() {
+	local iface="$1"
+	ubus call "network.interface.$iface" status 2>/dev/null
+}
+
+json_value() {
+	local json="$1" expr="$2"
+	printf '%s' "$json" | jsonfilter -q -e "$expr" 2>/dev/null | head -n 1
+}
+
+dns_check() {
+	local host="$1" timeout="$2"
+
+	nslookup "$host" >/dev/null 2>&1 &
+	local pid="$!"
+	local waited=0
+
+	while kill -0 "$pid" 2>/dev/null; do
+		[ "$waited" -ge "$timeout" ] && {
+			kill "$pid" 2>/dev/null
+			wait "$pid" 2>/dev/null
+			return 1
+		}
+		sleep 1
+		waited=$((waited + 1))
+	done
+
+	wait "$pid" >/dev/null 2>&1
+}
+
+http_check() {
+	local url="$1" timeout="$2"
+
+	[ -n "$url" ] || return 1
+	if command -v uclient-fetch >/dev/null 2>&1; then
+		uclient-fetch -q -T "$timeout" -O /dev/null "$url" >/dev/null 2>&1
+	elif command -v wget >/dev/null 2>&1; then
+		wget -q -T "$timeout" -O /dev/null "$url" >/dev/null 2>&1
+	else
+		return 1
+	fi
+}
+
+packet_loss() {
+	printf '%s' "$1" | sed -n 's/.* \([0-9][0-9]*\)% packet loss.*/\1/p'
+}
+
+interface_ipv4() {
+	local status="$1" dev="$2" ipaddr
+
+	ipaddr="$(json_value "$status" '@["ipv4-address"][0].address')"
+	if [ -z "$ipaddr" ] && [ -n "$dev" ] && command -v ip >/dev/null 2>&1; then
+		ipaddr="$(ip -o -4 addr show dev "$dev" 2>/dev/null | awk '/ inet / { split($4, a, "/"); print a[1]; exit }')"
+	fi
+
+	printf '%s' "$ipaddr"
+}
+
+forced_ping_output() {
+	local dev="$1" gateway="$2" source_ip="$3" target="$4" timeout="$5" output rc
+
+	bool_enabled "$(uci_get main force_offline_test)" || return 1
+	[ -n "$dev" ] && [ -n "$gateway" ] || return 1
+	is_ipv4 "$target" || return 1
+	command -v ip >/dev/null 2>&1 || return 1
+
+	if [ -n "$source_ip" ]; then
+		ip route add "$target/32" via "$gateway" dev "$dev" src "$source_ip" metric 5 >/dev/null 2>&1 || return 1
+		output="$(ping -c 3 -W "$timeout" -I "$source_ip" "$target" 2>/dev/null)"
+	else
+		ip route add "$target/32" via "$gateway" dev "$dev" metric 5 >/dev/null 2>&1 || return 1
+		output="$(ping -c 3 -W "$timeout" -I "$dev" "$target" 2>/dev/null)"
+	fi
+	rc="$?"
+	ip route del "$target/32" via "$gateway" dev "$dev" >/dev/null 2>&1
+
+	[ "$rc" = "0" ] || return 1
+	printf '%s\n' "$output"
+}
+
+recovery_option() {
+	local iface="$1" option="$2" value
+
+	value="$(uci -q get "$CONFIG.$iface.$option")"
+	if [ -z "$value" ]; then
+		_recovery_cb() {
+			local section="$1" section_iface section_value
+			config_get section_iface "$section" interface
+			[ "$section_iface" = "$iface" ] || return 0
+			config_get section_value "$section" "$option"
+			[ -n "$section_value" ] && value="$section_value"
+		}
+
+		config_load "$CONFIG"
+		config_foreach _recovery_cb recovery
+	fi
+	[ -n "$value" ] || value="$(uci -q get "$CONFIG.defaults.$option")"
+	printf '%s' "$value"
+}
+
+run_recovery() {
+	local iface="$1" failures="$2" threshold
+
+	threshold="$(recovery_option "$iface" failure_threshold)"
+	[ -n "$threshold" ] || threshold="3"
+	[ "$failures" -ge "$threshold" ] || return 0
+
+	if bool_enabled "$(recovery_option "$iface" restart_interface)"; then
+		log_event "$iface recovery: restarting interface after $failures failures"
+		ifdown "$iface" >/dev/null 2>&1
+		sleep 2
+		ifup "$iface" >/dev/null 2>&1
+	fi
+
+	if bool_enabled "$(recovery_option "$iface" restart_modem)"; then
+		log_event "$iface recovery: restarting modem service"
+		/etc/init.d/quectel-cm restart >/dev/null 2>&1 || /etc/init.d/qtcm restart >/dev/null 2>&1
+	fi
+
+	if bool_enabled "$(recovery_option "$iface" restart_network)"; then
+		log_event "$iface recovery: restarting network"
+		/etc/init.d/network restart >/dev/null 2>&1
+	fi
+
+	if bool_enabled "$(recovery_option "$iface" reboot_router)"; then
+		log_event "$iface recovery: rebooting router"
+		reboot
+	fi
+}
+
+probe_interface() {
+	local iface="$1" timeout="$2" status dev up ipaddr gateway score status_text latency loss ping_target dns_target http_url
+	local link_score=0 ip_score=0 gateway_score=0 route_score=0 ping_score=0 dns_score=0 http_score=0
+	local ping_output=""
+
+	status="$(iface_status "$iface")"
+	dev="$(json_value "$status" '@.l3_device')"
+	[ -n "$dev" ] || dev="$(json_value "$status" '@.device')"
+	[ -n "$dev" ] || [ ! -e "/sys/class/net/$iface" ] || dev="$iface"
+	up="$(json_value "$status" '@.up')"
+	if [ -z "$up" ] && [ -n "$dev" ] && [ -r "/sys/class/net/$dev/operstate" ]; then
+		case "$(cat "/sys/class/net/$dev/operstate" 2>/dev/null)" in
+			up|unknown) up="true" ;;
+			*) up="false" ;;
+		esac
+	fi
+
+	[ "$up" = "true" ] && link_score=15
+	ipaddr="$(interface_ipv4 "$status" "$dev")"
+	[ -n "$ipaddr" ] && ip_score=15
+	gateway="$(json_value "$status" '@.route[@.target="0.0.0.0"][@.mask=0].nexthop')"
+	[ -n "$gateway" ] || gateway="$(json_value "$status" '@.inactive.route[@.target="0.0.0.0"][@.mask=0].nexthop')"
+	[ -n "$gateway" ] || gateway="$(uci -q get "network.$iface.gateway")"
+	if [ -z "$gateway" ] && [ -n "$dev" ] && command -v ip >/dev/null 2>&1; then
+		gateway="$(ip -4 route show default dev "$dev" 2>/dev/null | awk '/default/ { print $3; exit }')"
+	fi
+	[ -n "$gateway" ] && gateway_score=15
+	[ -n "$(json_value "$status" '@.route[@.target="0.0.0.0"][@.mask=0].target')" ] && route_score=15
+	[ -n "$(json_value "$status" '@.inactive.route[@.target="0.0.0.0"][@.mask=0].target')" ] && route_score=15
+	if [ "$route_score" = "0" ] && [ -n "$dev" ] && command -v ip >/dev/null 2>&1; then
+		ip -4 route show default dev "$dev" 2>/dev/null | grep -q '^default' && route_score=15
+	fi
+
+	for ping_target in $(uci_get_list main ping_target); do
+		if [ -n "$dev" ]; then
+			ping_output="$(ping -c 3 -W "$timeout" -I "$dev" "$ping_target" 2>/dev/null)"
+		else
+			ping_output="$(ping -c 3 -W "$timeout" "$ping_target" 2>/dev/null)"
+		fi
+		if [ "$?" != "0" ]; then
+			ping_output="$(forced_ping_output "$dev" "$gateway" "$ipaddr" "$ping_target" "$timeout")"
+		fi
+		[ "$?" = "0" ] && {
+			ping_score=20
+			latency="$(printf '%s\n' "$ping_output" | awk -F'/' '/round-trip|rtt/ { print int($5); exit }')"
+			loss="$(packet_loss "$ping_output")"
+			break
+		}
+	done
+
+	for dns_target in $(uci_get_list main dns_target); do
+		dns_check "$dns_target" "$timeout" && {
+			dns_score=10
+			break
+		}
+	done
+
+	for http_url in $(uci_get_list main http_url); do
+		http_check "$http_url" "$timeout" && {
+			http_score=10
+			break
+		}
+	done
+
+	score=$((link_score + ip_score + gateway_score + route_score + ping_score + dns_score + http_score))
+	status_text="offline"
+	[ "$score" -ge 80 ] && status_text="ok"
+	[ "$score" -ge 50 ] && [ "$score" -lt 80 ] && status_text="degraded"
+
+	[ -n "$latency" ] || latency="-"
+	[ -n "$loss" ] || loss="100"
+
+	printf '{"name":"%s","device":"%s","address":"%s","gateway":"%s","status":"%s","score":%s,"latency":"%s","packet_loss":"%s","checks":{"link":%s,"ip":%s,"gateway":%s,"route":%s,"ping":%s,"dns":%s,"http":%s}}' \
+		"$(json_escape "$iface")" "$(json_escape "$dev")" "$(json_escape "$ipaddr")" "$(json_escape "$gateway")" "$status_text" "$score" "$latency" "$loss" \
+		"$link_score" "$ip_score" "$gateway_score" "$route_score" "$ping_score" "$dns_score" "$http_score"
+
+	return $([ "$status_text" = "offline" ] && printf 1 || printf 0)
+}
+
+run_once() {
+	local discovery enabled timeout status_file tmp now iface first failures fail_file old_status status_code iface_json
+
+	enabled="$(uci_get main enabled)"
+	bool_enabled "$enabled" || exit 0
+
+	timeout="$(uci_get main timeout)"
+	[ -n "$timeout" ] || timeout="3"
+	discovery="$(uci_get main discovery)"
+	[ -n "$discovery" ] || discovery="all"
+	status_file="$(uci_get main status_file)"
+	[ -n "$status_file" ] || status_file="$RUNTIME_DIR/status.json"
+
+	mkdir -p "$RUNTIME_DIR" "$STATE_DIR" "$(dirname "$status_file")"
+	tmp="$status_file.tmp"
+	now="$(date +%s)"
+
+	{
+		printf '{"timestamp":%s,"discovery":"%s","interfaces":[' "$now" "$(json_escape "$discovery")"
+		first=1
+		for iface in $(discover_interfaces | sort -u); do
+			[ -n "$iface" ] || continue
+			iface_json="$(probe_interface "$iface" "$timeout")"
+			status_code="$?"
+
+			[ "$first" = "1" ] || printf ','
+			first=0
+			printf '%s' "$iface_json"
+
+			fail_file="$STATE_DIR/$iface.failures"
+			old_status="$(cat "$STATE_DIR/$iface.status" 2>/dev/null)"
+			if [ "$status_code" = "0" ]; then
+				rm -f "$fail_file"
+				[ "$old_status" = "offline" ] && log_event "$iface restored"
+				printf '%s' "online" > "$STATE_DIR/$iface.status"
+			else
+				failures="$(cat "$fail_file" 2>/dev/null)"
+				[ -n "$failures" ] || failures="0"
+				failures=$((failures + 1))
+				printf '%s' "$failures" > "$fail_file"
+				[ "$old_status" = "offline" ] || log_event "$iface offline"
+				printf '%s' "offline" > "$STATE_DIR/$iface.status"
+				run_recovery "$iface" "$failures"
+			fi
+		done
+		printf ']}'
+	} > "$tmp"
+
+	mv "$tmp" "$status_file"
+}
+
+while true; do
+	interval="$(uci_get main interval)"
+	[ -n "$interval" ] || interval="30"
+	run_once
+	sleep "$interval"
+done

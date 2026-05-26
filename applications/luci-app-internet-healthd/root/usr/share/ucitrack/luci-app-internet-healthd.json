@@ -1,0 +1,4 @@
+{
+	"config": "internet-healthd",
+	"init": "internet-healthd"
+}
