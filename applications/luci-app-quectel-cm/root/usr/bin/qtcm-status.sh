@@ -203,6 +203,50 @@ sync_gsm_led() {
 	esac
 }
 
+network_status_from_iface() {
+	local iface="$1"
+
+	[ -n "$iface" ] || iface="$(detect_interface)"
+	[ -n "$iface" ] && [ "$iface" != "Unknown" ] || {
+		printf '%s' "Unknown"
+		return
+	}
+
+	[ -e "/sys/class/net/$iface/operstate" ] || {
+		printf '%s' "Unknown"
+		return
+	}
+
+	case "$(cat "/sys/class/net/$iface/operstate" 2>/dev/null)" in
+		up|unknown)
+			if command -v ip >/dev/null 2>&1 && ip -o addr show dev "$iface" 2>/dev/null | grep -q ' inet '; then
+				printf '%s' "Yes"
+			else
+				printf '%s' "Unknown"
+			fi
+			;;
+		*)
+			printf '%s' "No"
+			;;
+	esac
+}
+
+sync_leds_only() {
+	local active_sim_gpio active_sim network_status iface
+
+	iface="$1"
+	active_sim_gpio="$(active_sim_from_gpio)"
+	active_sim="$(read_uci qtcm.main.active_sim)"
+	[ "$active_sim" = "2" ] || active_sim="1"
+	[ -n "$active_sim_gpio" ] && active_sim="$active_sim_gpio"
+
+	ensure_gpio_sim_switch_state "$active_sim"
+	sync_sim_leds "$active_sim"
+
+	network_status="$(network_status_from_iface "$iface")"
+	sync_gsm_led "$network_status"
+}
+
 detect_service_running() {
 	if command -v ubus >/dev/null 2>&1; then
 		ubus call service list '{"name":"qtcm"}' 2>/dev/null | grep -q '"running":true' && return 0
@@ -772,5 +816,12 @@ main() {
 	printf '"sim2_info":"%s"' "$(json_escape "$sim2_info")"
 	printf '}\n'
 }
+
+case "$1" in
+	leds)
+		sync_leds_only "$2"
+		exit 0
+		;;
+esac
 
 main "$@"
