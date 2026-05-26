@@ -5,6 +5,7 @@ STATE_DIR="/tmp/qtcmsim-failover"
 LAST_SWITCH_FILE="$STATE_DIR/last_switch"
 LOSS_SINCE_FILE="$STATE_DIR/loss_since"
 USAGE_FILE="$STATE_DIR/usage"
+LAST_PRIMARY_RETRY_FILE="$STATE_DIR/last_primary_retry"
 
 log() {
 	logger -t "$NAME" "$*"
@@ -36,6 +37,20 @@ active_sim() {
 
 other_sim() {
 	[ "$1" = "1" ] && printf '2' || printf '1'
+}
+
+primary_sim() {
+	local sim
+
+	sim="$(cfg primary_sim 1)"
+	[ "$sim" = "2" ] && printf '2' || printf '1'
+}
+
+backup_sim() {
+	local sim
+
+	sim="$(cfg backup_sim 2)"
+	[ "$sim" = "1" ] && printf '1' || printf '2'
 }
 
 json_value() {
@@ -93,6 +108,27 @@ ping_hosts() {
 	done
 
 	printf '%s' "$count"
+}
+
+internet_ok_for_sim() {
+	local sim="$1"
+	local timeout min_ping ip_type ipv4_hosts ipv6_hosts got=0
+
+	[ "$(cfg check_internet_failure "$(cfg check_ping_status 0)")" = "1" ] || return 0
+
+	timeout="$(cfg response_timeout 10)"
+	min_ping="$(cfg minimum_ping_responses 1)"
+	ip_type="$(read_uci "qtcm.sim${sim}.ip_type")"
+	ipv4_hosts="$(read_uci qtcm.failover.ping_ipv4_ips)"
+	ipv6_hosts="$(read_uci qtcm.failover.ping_ipv6_ips)"
+
+	case "$ip_type" in
+		ipv6) got="$(ping_hosts 6 "$ipv6_hosts" "$timeout")" ;;
+		ipv4v6) got=$(( $(ping_hosts 4 "$ipv4_hosts" "$timeout") + $(ping_hosts 6 "$ipv6_hosts" "$timeout") )) ;;
+		*) got="$(ping_hosts 4 "$ipv4_hosts" "$timeout")" ;;
+	esac
+
+	[ "$got" -ge "$min_ping" ]
 }
 
 max_ping_latency() {
@@ -188,6 +224,7 @@ switch_to_sim() {
 	local reason="$3"
 	local iface="$4"
 	local signal_dbm="$5"
+	local force="$6"
 
 	[ "$new_sim" = "$old_sim" ] && return 0
 	sim_enabled "$new_sim" || {
@@ -195,7 +232,7 @@ switch_to_sim() {
 		return 1
 	}
 
-	if ! allowed_to_switch; then
+	if [ "$force" != "1" ] && ! allowed_to_switch; then
 		log "switch SIM $old_sim -> $new_sim blocked by flapping protection"
 		return 1
 	fi
@@ -211,6 +248,62 @@ switch_to_sim() {
 	if [ "$(cfg restart_qtcm_after_switch 1)" = "1" ] && [ -x /etc/init.d/qtcm ]; then
 		/etc/init.d/qtcm restart >/dev/null 2>&1 || log "qtcm restart failed after SIM switch"
 	fi
+}
+
+try_primary_sim() {
+	local current primary settle reason iface signal_dbm json
+
+	primary="$(primary_sim)"
+	current="$(active_sim)"
+
+	[ "$current" = "$primary" ] && {
+		log "primary SIM $primary already active"
+		return 0
+	}
+
+	sim_enabled "$primary" || {
+		log "primary SIM $primary retry skipped because it is disabled"
+		return 1
+	}
+
+	json="$(status_json)"
+	iface="$(printf '%s' "$json" | json_value interface)"
+	signal_dbm="$(printf '%s' "$json" | json_value signal_dbm)"
+	reason="${1:-primary retry}"
+	settle="$(cfg primary_retry_settle_time 60)"
+
+	printf '%s\n' "$(now)" > "$LAST_PRIMARY_RETRY_FILE"
+	switch_to_sim "$primary" "$current" "$reason" "$iface" "$signal_dbm" 1 || return 1
+	sleep "$settle"
+
+	if [ "$(cfg primary_retry_check_internet 1)" = "1" ] && ! internet_ok_for_sim "$primary"; then
+		log "primary SIM $primary retry failed internet check, switching back to SIM $current"
+		switch_to_sim "$current" "$primary" "primary retry failed internet check" "$iface" "$signal_dbm" 1
+		return 1
+	fi
+
+	log "primary SIM $primary retry accepted"
+	return 0
+}
+
+maybe_try_primary_sim() {
+	local current primary interval last elapsed
+
+	[ "$(cfg enable_primary_failback 0)" = "1" ] || return 0
+
+	primary="$(primary_sim)"
+	current="$(active_sim)"
+	[ "$current" != "$primary" ] || return 0
+
+	interval="$(cfg primary_retry_interval 3600)"
+	last="$(cat "$LAST_PRIMARY_RETRY_FILE" 2>/dev/null)"
+	[ -n "$last" ] || last="$(cat "$LAST_SWITCH_FILE" 2>/dev/null)"
+	[ -n "$last" ] || last=0
+
+	elapsed=$(($(now) - last))
+	[ "$elapsed" -ge "$interval" ] || return 0
+
+	try_primary_sim "scheduled primary failback retry"
 }
 
 handle_network_loss_reboot() {
@@ -238,12 +331,14 @@ handle_network_loss_reboot() {
 }
 
 check_once() {
-	local json sim target reason iface signal_dbm signal_abs threshold failed=0
+	local json sim target reason iface signal_dbm signal_abs threshold failed=0 primary backup
 	local signal_snr min_snr trigger ip_type ipv4_hosts ipv6_hosts timeout min_ping got latency fail_latency network_status
 
 	json="$(status_json)"
 	sim="$(active_sim)"
-	target="$(other_sim "$sim")"
+	primary="$(primary_sim)"
+	backup="$(backup_sim)"
+	[ "$sim" = "$primary" ] && target="$backup" || target="$primary"
 	iface="$(printf '%s' "$json" | json_value interface)"
 	signal_dbm="$(printf '%s' "$json" | json_value signal_dbm)"
 	signal_snr="$(printf '%s' "$json" | json_value signal_snr)"
@@ -319,9 +414,18 @@ check_once() {
 	fi
 
 	[ "$failed" = "1" ] && switch_to_sim "$target" "$sim" "$reason" "$iface" "$signal_dbm"
+	[ "$failed" = "0" ] && maybe_try_primary_sim
 }
 
 mkdir -p "$STATE_DIR"
+
+case "$1" in
+	try-primary)
+		try_primary_sim "manual primary retry"
+		exit $?
+		;;
+esac
+
 log "started"
 
 while :; do

@@ -75,6 +75,12 @@ set_default qtcm.failover.sim2_quota_day '2'
 set_default qtcm.failover.link_check_interval '180'
 set_default qtcm.failover.restart_qtcm_after_switch '1'
 set_default qtcm.failover.post_switch_hook '/etc/qtcm_custom_failover_script.sh'
+set_default qtcm.failover.primary_sim '1'
+set_default qtcm.failover.backup_sim '2'
+set_default qtcm.failover.enable_primary_failback '0'
+set_default qtcm.failover.primary_retry_interval '3600'
+set_default qtcm.failover.primary_retry_settle_time '60'
+set_default qtcm.failover.primary_retry_check_internet '1'
 
 uci -q commit qtcm
 

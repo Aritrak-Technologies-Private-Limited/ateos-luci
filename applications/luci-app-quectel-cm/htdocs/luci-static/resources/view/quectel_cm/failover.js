@@ -133,6 +133,34 @@ function addFailoverSection(map) {
 	o.datatype = 'uinteger';
 	o.placeholder = '180';
 
+	o = section.option(form.ListValue, 'primary_sim', _('Primary SIM'));
+	o.value('1', _('SIM 1'));
+	o.value('2', _('SIM 2'));
+	o.default = '1';
+
+	o = section.option(form.ListValue, 'backup_sim', _('Backup SIM'));
+	o.value('1', _('SIM 1'));
+	o.value('2', _('SIM 2'));
+	o.default = '2';
+
+	o = section.option(form.Flag, 'enable_primary_failback', _('Auto Retry Primary SIM'));
+	o.rmempty = false;
+
+	o = section.option(form.Value, 'primary_retry_interval', _('Primary Retry Interval (Seconds)'));
+	o.datatype = 'uinteger';
+	o.placeholder = '3600';
+	o.depends('enable_primary_failback', '1');
+
+	o = section.option(form.Value, 'primary_retry_settle_time', _('Primary Retry Settle Time (Seconds)'));
+	o.datatype = 'uinteger';
+	o.placeholder = '60';
+	o.depends('enable_primary_failback', '1');
+
+	o = section.option(form.Flag, 'primary_retry_check_internet', _('Check Internet Before Staying on Primary'));
+	o.rmempty = false;
+	o.default = '1';
+	o.depends('enable_primary_failback', '1');
+
 	o = section.option(form.Flag, 'restart_qtcm_after_switch', _('Restart QTCM After SIM Switch'));
 	o.rmempty = false;
 	o.default = '1';
@@ -204,7 +232,18 @@ return view.extend({
 							ui.addNotification(null, E('p', _('Failover monitor disabled at boot.')));
 						});
 					})
-				}, [ _('Disable on Boot') ])
+				}, [ _('Disable on Boot') ]),
+				' ',
+				E('button', {
+					'class': 'btn cbi-button cbi-button-action',
+					'click': ui.createHandlerFn(this, function() {
+						return fs.exec('/usr/libexec/qtcmsim-failover', [ 'try-primary' ]).then(function() {
+							ui.addNotification(null, E('p', _('Primary SIM retry requested.')));
+						}).catch(function(err) {
+							ui.addNotification(null, E('p', _('Primary SIM retry failed: %s').format(err.message || err)));
+						});
+					})
+				}, [ _('Try Primary SIM') ])
 			])
 		]);
 
