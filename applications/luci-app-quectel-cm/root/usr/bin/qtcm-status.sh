@@ -59,6 +59,54 @@ sim_summary() {
 	printf '%s - %s, %s, %s, %s' "$desc" "$(sim_enabled_text "$sim")" "$apn" "$network_mode" "$ip_type"
 }
 
+active_sim_from_gpio() {
+	local mode value sim1_value sim2_value
+
+	mode="$(read_uci qtcm.sim_switch.mode)"
+	[ -n "$mode" ] || mode="gpio"
+	[ "$mode" = "gpio" ] || return 0
+
+	sim1_value="$(read_uci qtcm.sim_switch.sim1_value)"
+	[ -n "$sim1_value" ] || sim1_value="1"
+	sim2_value="$(read_uci qtcm.sim_switch.sim2_value)"
+	[ -n "$sim2_value" ] || sim2_value="0"
+	value="$(read_uci system.sim_switch.value)"
+
+	[ "$value" = "$sim1_value" ] && {
+		printf '%s' "1"
+		return
+	}
+
+	[ "$value" = "$sim2_value" ] && {
+		printf '%s' "2"
+		return
+	}
+
+	printf '%s' ""
+}
+
+active_sim_source() {
+	local mode
+
+	mode="$(read_uci qtcm.sim_switch.mode)"
+	[ -n "$mode" ] || mode="gpio"
+
+	case "$mode" in
+		gpio)
+			[ -n "$(active_sim_from_gpio)" ] && printf '%s' "GPIO" || printf '%s' "UCI"
+			;;
+		module)
+			printf '%s' "Module/UCI"
+			;;
+		none)
+			printf '%s' "UCI"
+			;;
+		*)
+			printf '%s' "UCI"
+			;;
+	esac
+}
+
 detect_service_running() {
 	if command -v ubus >/dev/null 2>&1; then
 		ubus call service list '{"name":"qtcm"}' 2>/dev/null | grep -q '"running":true' && return 0
@@ -533,7 +581,7 @@ main() {
 	local modem_source sim_status network_status network_type band_info provider signal_bars signal_text signal_dbm signal_snr
 	local imei iccid imsi active_sim_slot sim_slots_supported dsss_status connected_sims
 	local sim_raw reg_raw provider_raw serving_raw csq_raw identity_raw sim_slot_raw
-	local active_sim sim1_info sim2_info
+	local active_sim active_sim_gpio active_sim_src sim1_info sim2_info
 
 	if detect_service_running; then
 		running=1
@@ -541,8 +589,11 @@ main() {
 
 	interface="$(detect_interface)"
 	at_port="$(detect_at_port)"
+	active_sim_gpio="$(active_sim_from_gpio)"
 	active_sim="$(read_uci qtcm.main.active_sim)"
 	[ "$active_sim" = "2" ] || active_sim="1"
+	[ -n "$active_sim_gpio" ] && active_sim="$active_sim_gpio"
+	active_sim_src="$(active_sim_source)"
 	sim1_info="$(sim_summary 1)"
 	sim2_info="$(sim_summary 2)"
 
@@ -616,6 +667,7 @@ main() {
 	printf '"signal_text":"%s",' "$(json_escape "$signal_text")"
 	printf '"modem_source":"%s",' "$(json_escape "$modem_source")"
 	printf '"active_sim":"%s",' "$(json_escape "$active_sim")"
+	printf '"active_sim_source":"%s",' "$(json_escape "$active_sim_src")"
 	printf '"sim1_info":"%s",' "$(json_escape "$sim1_info")"
 	printf '"sim2_info":"%s"' "$(json_escape "$sim2_info")"
 	printf '}\n'

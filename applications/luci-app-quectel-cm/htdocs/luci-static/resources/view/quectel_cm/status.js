@@ -44,6 +44,7 @@ function normalizeStatus(data) {
 		signal_text: (data && data.signal_text) || _('Unknown'),
 		modem_source: (data && data.modem_source) || _('Unknown'),
 		active_sim: (data && data.active_sim) || _('Unknown'),
+		active_sim_source: (data && data.active_sim_source) || _('Unknown'),
 		sim1_info: (data && data.sim1_info) || _('Unknown'),
 		sim2_info: (data && data.sim2_info) || _('Unknown')
 	};
@@ -60,6 +61,7 @@ return view.extend({
 		dom.content(container, [
 			fieldRow(_('Service'), serviceStatusText(data.service_running)),
 			fieldRow(_('Active SIM'), data.active_sim == '1' ? _('SIM 1') : data.active_sim == '2' ? _('SIM 2') : data.active_sim),
+			fieldRow(_('Active SIM source'), data.active_sim_source),
 			fieldRow(_('Module SIM slot'), data.active_sim_slot),
 			fieldRow(_('SIM slots supported'), data.sim_slots_supported),
 			fieldRow(_('Connected SIMs'), data.connected_sims),

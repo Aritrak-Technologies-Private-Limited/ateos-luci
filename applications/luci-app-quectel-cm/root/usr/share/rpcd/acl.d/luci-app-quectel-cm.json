@@ -2,7 +2,7 @@
 	"luci-app-quectel-cm": {
 		"description": "Grant access to the Quectel CM LuCI app",
 		"read": {
-			"uci": [ "firewall", "qtcm" ],
+			"uci": [ "firewall", "qtcm", "system" ],
 			"ubus": {
 				"qtcm": [ "status" ],
 				"service": [ "list" ]
@@ -12,7 +12,8 @@
 			"uci": [ "qtcm" ],
 			"file": {
 				"/etc/init.d/qtcm": [ "exec" ],
-				"/etc/init.d/qtcmsim-failover": [ "exec" ]
+				"/etc/init.d/qtcmsim-failover": [ "exec" ],
+				"/usr/libexec/qtcm-manual-sim-switch": [ "exec" ]
 			}
 		}
 	}
