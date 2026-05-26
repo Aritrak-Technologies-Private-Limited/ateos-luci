@@ -9,6 +9,7 @@
 var firewallZone = '@zone[1]';
 var pingHost = '8.8.8.8';
 var internetCache = null;
+var signalCache = null;
 var refreshNode = null;
 
 function listValue(value) {
@@ -90,6 +91,17 @@ function networkDeviceMap(nets) {
 	return map;
 }
 
+function interfaceNameForDevice(devname, devmap) {
+	if (!devname)
+		return '';
+
+	for (var name in devmap)
+		if (devmap[name].device == devname)
+			return name;
+
+	return devname;
+}
+
 function configuredSources() {
 	return listValue(uci.get('firewall', firewallZone, 'network'));
 }
@@ -138,6 +150,160 @@ function runChecks(sources, devmap) {
 	});
 }
 
+function numericValue(value) {
+	var m = /(-?[0-9]+(?:\.[0-9]+)?)/.exec(value == null ? '' : String(value));
+	return m ? parseFloat(m[1]) : null;
+}
+
+function parseServingCell(raw) {
+	var line = ((raw || '').match(/\+QENG:[^\n\r]+/) || [ '' ])[0];
+	var fields = line.split(',').map(function(field) {
+		return field.replace(/^\s+|\s+$/g, '').replace(/^"|"$/g, '');
+	});
+	var info = {
+		raw: line,
+		network_type: /NR5G|5G/i.test(line) ? '5G' : /LTE|4G/i.test(line) ? '4G' : _('Cellular'),
+		rssi: null,
+		rsrq: null
+	};
+
+	for (var i = 0; i < fields.length; i++) {
+		if (/^-?[0-9]+(?:\.[0-9]+)?$/.test(fields[i])) {
+			var prev = fields[i - 1] || '';
+			var value = parseFloat(fields[i]);
+
+			if (/RSRQ/i.test(prev))
+				info.rsrq = value;
+			else if (/RSSI/i.test(prev))
+				info.rssi = value;
+		}
+	}
+
+	for (var j = 0; j < fields.length; j++) {
+		if (/LTE/i.test(fields[j]) && fields.length >= j + 17) {
+			info.rsrq = info.rsrq != null ? info.rsrq : numericValue(fields[j + 12]);
+			info.rssi = info.rssi != null ? info.rssi : numericValue(fields[j + 13]);
+			break;
+		}
+
+		if (/NR5G/i.test(fields[j]) && fields.length >= j + 15) {
+			info.rsrq = info.rsrq != null ? info.rsrq : numericValue(fields[j + 12]);
+			break;
+		}
+	}
+
+	return info.raw ? info : null;
+}
+
+function loadCellularSignal(force) {
+	var atPort = uci.get('qtcm', 'main', 'at_port') || '/dev/ttyUSB2';
+	var script = '/etc/gcom/internet-src-servingcell.gcom';
+
+	if (!force && signalCache)
+		return Promise.resolve(signalCache);
+
+	return L.resolveDefault(
+		fs.exec('/usr/bin/gcom', [ '-d', atPort, '-s', script ]),
+		{ code: 1, stdout: '', stderr: '' }
+	).then(function(res) {
+		signalCache = parseServingCell(res.stdout || res.stderr || '');
+		return signalCache;
+	});
+}
+
+function signalMetric(data) {
+	var type = String(data && data.network_type || '').toUpperCase();
+	var rsrqValue = numericValue(data && data.rsrq);
+	var rssiValue = numericValue(data && data.rssi);
+
+	if (type.indexOf('5G') != -1 && rsrqValue != null)
+		return {
+			kind: 'RSRQ',
+			unit: 'dB',
+			value: rsrqValue
+		};
+
+	if (rssiValue != null)
+		return {
+			kind: 'RSSI',
+			unit: 'dBm',
+			value: rssiValue
+		};
+
+	return null;
+}
+
+function signalLevel(metric) {
+	if (!metric)
+		return { bars: 0, label: _('Unknown') };
+
+	if (metric.kind == 'RSRQ') {
+		if (metric.value >= -10)
+			return { bars: 5, label: _('Excellent') };
+		if (metric.value >= -15)
+			return { bars: 4, label: _('Good') };
+		if (metric.value >= -20)
+			return { bars: 3, label: _('Fair') };
+		if (metric.value >= -25)
+			return { bars: 2, label: _('Poor') };
+		return { bars: 1, label: _('Very Weak') };
+	}
+
+	if (metric.value >= -65)
+		return { bars: 5, label: _('Excellent') };
+	if (metric.value >= -75)
+		return { bars: 4, label: _('Good') };
+	if (metric.value >= -85)
+		return { bars: 3, label: _('Fair') };
+	if (metric.value >= -95)
+		return { bars: 2, label: _('Poor') };
+	return { bars: 1, label: _('Very Weak') };
+}
+
+function isCellularRelevant(sources, devmap, data) {
+	var routed = data.routed || '';
+	var routedName = interfaceNameForDevice(routed, devmap);
+	var qtcmIf = qtcmInterface();
+
+	if (routedName == 'cellular' || routed == 'cellular')
+		return true;
+
+	if (qtcmIf && (routedName == qtcmIf || routed == qtcmIf))
+		return true;
+
+	return sources.indexOf('cellular') != -1 && data.checks.cellular && data.checks.cellular.ok;
+}
+
+function renderSignalBars(bars) {
+	var items = [];
+
+	for (var i = 1; i <= 5; i++)
+		items.push(E('span', {
+			'class': i <= bars ? 'active' : '',
+			'style': 'height:%dpx'.format(5 + i * 3)
+		}));
+
+	return E('span', { 'class': 'internet-src-bars' }, items);
+}
+
+function renderCellularSignal(signal) {
+	var metric = signalMetric(signal);
+	var level = signalLevel(metric);
+	var type = signal && signal.network_type ? signal.network_type : _('Cellular');
+	var detail = metric
+		? '%s %s %s'.format(metric.kind, metric.value, metric.unit)
+		: _('Signal unavailable');
+
+	return E('div', { 'class': 'internet-src-signal' }, [
+		renderSignalBars(level.bars),
+		E('span', { 'class': 'internet-src-signal-main' }, [
+			level.label,
+			' ',
+			E('small', {}, '(%s, %s)'.format(type, detail))
+		])
+	]);
+}
+
 function statusBadge(ok) {
 	return E('span', {
 		'class': ok ? 'label success' : 'label warning',
@@ -181,6 +347,7 @@ function renderAddControls(ctx, sources, devmap) {
 	var qtcmIf = qtcmInterface();
 	var candidates = [];
 	var candidateMap = {};
+	var children;
 	var select;
 	var simWrap;
 	var simSelect;
@@ -213,13 +380,15 @@ function renderAddControls(ctx, sources, devmap) {
 		simWrap.style.display = qtcmIf && select.value == qtcmIf ? 'inline-flex' : 'none';
 	});
 
-	return E('div', {
-		'class': 'cbi-page-actions',
-		'style': 'display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;justify-content:flex-start'
-	}, [
+	children = [
 		E('label', {}, _('Add Internet interface')),
 		select,
-		qtcmIf ? simWrap : null,
+	];
+
+	if (qtcmIf)
+		children.push(simWrap);
+
+	children.push(
 		E('button', {
 			'class': 'btn cbi-button cbi-button-action',
 			'disabled': candidates.length ? null : 'disabled',
@@ -245,37 +414,55 @@ function renderAddControls(ctx, sources, devmap) {
 					})
 					.catch(function(err) {
 						ui.addNotification(null, E('p', _('Unable to add internet interface: %s').format(err.message || err)));
-					});
+				});
 			})
 		}, [ _('Add') ])
-	]);
+	);
+
+	return E('div', {
+		'class': 'cbi-page-actions',
+		'style': 'display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;justify-content:flex-start'
+	}, children);
 }
 
-function renderStatus(ctx, nets, data) {
+function renderStatus(ctx, nets, data, signal) {
 	var sources = configuredSources();
 	var devmap = networkDeviceMap(nets);
-	var routed = data.routed || '-';
+	var routed = interfaceNameForDevice(data.routed, devmap) || '-';
 	var checked = data.checked ? new Date(data.checked).toLocaleString() : '-';
+	var showSignal = signal && isCellularRelevant(sources, devmap, data);
+	var summary = [
+		E('dt', {}, _('Current Routed Internet Interface')),
+		E('dd', {}, routed),
+		E('dt', {}, _('Configured Internet Sources')),
+		E('dd', {}, sources.length ? sources.join(', ') : '-'),
+		E('dt', {}, _('Cellular Interface')),
+		E('dd', {}, qtcmInterface() || '-'),
+		E('dt', {}, _('Cellular SIM')),
+		E('dd', {}, simLabel(activeSimFromConfig()))
+	];
+
+	if (showSignal) {
+		summary.push(E('dt', {}, _('Cellular Signal')));
+		summary.push(E('dd', {}, renderCellularSignal(signal)));
+	}
+
+	summary.push(E('dt', {}, _('Last Checked')));
+	summary.push(E('dd', {}, checked));
 
 	return E('div', { 'class': 'internet-src-status' }, [
 		E('style', {}, [
 			'.internet-src-status .internet-src-summary{display:grid;grid-template-columns:14rem minmax(0,1fr);gap:.5rem 1rem;margin:0 0 1rem}',
 			'.internet-src-status .internet-src-summary dt{font-weight:700;text-align:right}',
 			'.internet-src-status .internet-src-summary dd{margin:0;min-width:0}',
+			'.internet-src-signal{display:inline-flex;align-items:flex-end;gap:.55rem;min-height:24px}',
+			'.internet-src-bars{display:inline-flex;align-items:flex-end;gap:2px;height:24px}',
+			'.internet-src-bars span{display:inline-block;width:5px;background:#d6d6d6;border-radius:1px}',
+			'.internet-src-bars span.active{background:#4caf50}',
+			'.internet-src-signal-main small{color:#666}',
 			'@media(max-width:600px){.internet-src-status .internet-src-summary{grid-template-columns:1fr}.internet-src-status .internet-src-summary dt{text-align:left}}'
 		]),
-		E('dl', { 'class': 'internet-src-summary' }, [
-			E('dt', {}, _('Current Routed Internet Interface')),
-			E('dd', {}, routed),
-			E('dt', {}, _('Configured Internet Sources')),
-			E('dd', {}, sources.length ? sources.join(', ') : '-'),
-			E('dt', {}, _('Cellular Interface')),
-			E('dd', {}, qtcmInterface() || '-'),
-			E('dt', {}, _('Cellular SIM')),
-			E('dd', {}, simLabel(activeSimFromConfig())),
-			E('dt', {}, _('Last Checked')),
-			E('dd', {}, checked)
-		]),
+		E('dl', { 'class': 'internet-src-summary' }, summary),
 		renderSourceTable(sources, devmap, data),
 		E('div', {
 			'class': 'cbi-page-actions',
@@ -305,11 +492,22 @@ return baseclass.extend({
 			var sources = configuredSources();
 			var devmap = networkDeviceMap(nets);
 
-			if (internetCache)
-				return [ nets, internetCache ];
+			if (internetCache) {
+				if (isCellularRelevant(sources, devmap, internetCache))
+					return loadCellularSignal(false).then(function(signal) {
+						return [ nets, internetCache, signal ];
+					});
+
+				return [ nets, internetCache, null ];
+			}
 
 			return runChecks(sources, devmap).then(function(data) {
-				return [ nets, data ];
+				if (isCellularRelevant(sources, devmap, data))
+					return loadCellularSignal(false).then(function(signal) {
+						return [ nets, data, signal ];
+					});
+
+				return [ nets, data, null ];
 			});
 		});
 	},
@@ -325,7 +523,12 @@ return baseclass.extend({
 			var devmap = networkDeviceMap(nets);
 
 			return runChecks(sources, devmap).then(L.bind(function(data) {
-				dom.content(refreshNode, renderStatus(this, nets, data));
+				if (isCellularRelevant(sources, devmap, data))
+					return loadCellularSignal(true).then(L.bind(function(signal) {
+						dom.content(refreshNode, renderStatus(this, nets, data, signal));
+					}, this));
+
+				dom.content(refreshNode, renderStatus(this, nets, data, null));
 			}, this));
 		}, this)).catch(function(err) {
 			dom.content(refreshNode, E('div', { 'class': 'alert-message warning' },
@@ -336,9 +539,10 @@ return baseclass.extend({
 	render: function(result) {
 		var nets = result ? result[0] || [] : [];
 		var data = result ? result[1] || { routed: '', checks: {} } : { routed: '', checks: {} };
+		var signal = result ? result[2] : null;
 
 		refreshNode = E('div');
-		dom.content(refreshNode, renderStatus(this, nets, data));
+		dom.content(refreshNode, renderStatus(this, nets, data, signal));
 
 		return refreshNode;
 	}

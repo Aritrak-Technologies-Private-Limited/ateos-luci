@@ -4,7 +4,8 @@
 		"read": {
 			"file": {
 				"/bin/ping": [ "exec" ],
-				"/sbin/route": [ "exec" ]
+				"/sbin/route": [ "exec" ],
+				"/usr/bin/gcom": [ "exec" ]
 			},
 			"ubus": {
 				"file": [ "exec" ],
@@ -14,7 +15,8 @@
 			"uci": [
 				"firewall",
 				"network",
-				"qtcm"
+				"qtcm",
+				"system"
 			]
 		},
 		"write": {
