@@ -64,6 +64,25 @@ set_switch_value() {
 	restart_gpio_switch
 }
 
+set_sim_leds() {
+	local sim="$1"
+	local sim1="/sys/class/leds/led:sim1/brightness"
+	local sim2="/sys/class/leds/led:sim2/brightness"
+
+	case "$sim" in
+		1)
+			[ -w "$sim1" ] && echo 1 > "$sim1"
+			[ -w "$sim2" ] && echo 0 > "$sim2"
+			logger -t qtcm-custom-failover "SIM LED state set to SIM1"
+			;;
+		2)
+			[ -w "$sim1" ] && echo 0 > "$sim1"
+			[ -w "$sim2" ] && echo 1 > "$sim2"
+			logger -t qtcm-custom-failover "SIM LED state set to SIM2"
+			;;
+	esac
+}
+
 sim_value() {
 	case "$1" in
 		1)
@@ -212,5 +231,6 @@ case "$OLD_SIM:$NEW_SIM" in
 esac
 
 power_cycle_mpcie || exit 1
+set_sim_leds "$NEW_SIM"
 
 exit 0

@@ -107,6 +107,61 @@ active_sim_source() {
 	esac
 }
 
+sync_sim_leds() {
+	local sim="$1"
+	local sim1="/sys/class/leds/led:sim1/brightness"
+	local sim2="/sys/class/leds/led:sim2/brightness"
+
+	case "$sim" in
+		1)
+			[ -w "$sim1" ] && echo 1 > "$sim1"
+			[ -w "$sim2" ] && echo 0 > "$sim2"
+			;;
+		2)
+			[ -w "$sim1" ] && echo 0 > "$sim1"
+			[ -w "$sim2" ] && echo 1 > "$sim2"
+			;;
+	esac
+}
+
+set_led_trigger() {
+	local led="$1"
+	local trigger="$2"
+
+	[ -w "$led/trigger" ] || return 1
+	echo "$trigger" > "$led/trigger" 2>/dev/null
+}
+
+set_led_brightness() {
+	local led="$1"
+	local value="$2"
+
+	[ -w "$led/brightness" ] || return 1
+	echo "$value" > "$led/brightness" 2>/dev/null
+}
+
+sync_gsm_led() {
+	local status="$1"
+	local led="/sys/class/leds/led:gsm"
+
+	[ -d "$led" ] || return 0
+
+	case "$status" in
+		Yes)
+			set_led_trigger "$led" none
+			set_led_brightness "$led" 1
+			;;
+		*)
+			if set_led_trigger "$led" timer; then
+				[ -w "$led/delay_on" ] && echo 500 > "$led/delay_on" 2>/dev/null
+				[ -w "$led/delay_off" ] && echo 500 > "$led/delay_off" 2>/dev/null
+			else
+				set_led_brightness "$led" 1
+			fi
+			;;
+	esac
+}
+
 detect_service_running() {
 	if command -v ubus >/dev/null 2>&1; then
 		ubus call service list '{"name":"qtcm"}' 2>/dev/null | grep -q '"running":true' && return 0
@@ -594,6 +649,7 @@ main() {
 	[ "$active_sim" = "2" ] || active_sim="1"
 	[ -n "$active_sim_gpio" ] && active_sim="$active_sim_gpio"
 	active_sim_src="$(active_sim_source)"
+	sync_sim_leds "$active_sim"
 	sim1_info="$(sim_summary 1)"
 	sim2_info="$(sim_summary 2)"
 
@@ -609,6 +665,7 @@ main() {
 		modem_source="gcom via $at_port"
 		sim_status="$(parse_sim_status "$sim_raw")"
 		network_status="$(parse_reg_status "$reg_raw")"
+		sync_gsm_led "$network_status"
 		network_type="$(parse_network_type "$serving_raw $provider_raw")"
 		band_info="$(parse_band_info "$serving_raw")"
 		imei="$(parse_imei "$identity_raw")"
@@ -629,6 +686,7 @@ main() {
 		modem_source="No modem AT port detected"
 		sim_status="Unknown"
 		network_status="Unknown"
+		sync_gsm_led "$network_status"
 		network_type="Unknown"
 		band_info="Unknown"
 		imei="Unknown"
