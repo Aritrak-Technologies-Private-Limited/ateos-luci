@@ -4,7 +4,7 @@
 include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=LuCI support for Internet Health Daemon
-LUCI_DEPENDS:=+luci-base +internet-healthd
+LUCI_DEPENDS:=+luci-base +jsonfilter
 PKG_LICENSE:=GPL-2.0-only
 PKG_MAINTAINER:=Shiva Aradi <developer.aradi@gmail.com>
 
