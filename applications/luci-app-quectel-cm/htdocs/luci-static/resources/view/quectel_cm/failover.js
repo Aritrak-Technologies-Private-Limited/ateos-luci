@@ -66,6 +66,7 @@ function addFailoverSection(map) {
 	o = section.option(form.Value, 'switch_above_signal', _('Switch Above Signal (dBm)'));
 	o.datatype = 'integer';
 	o.placeholder = '75';
+	o.depends('check_signal_strength', '1');
 
 	o = section.option(form.Flag, 'check_snr', _('Check SNR'));
 	o.rmempty = false;
@@ -73,6 +74,7 @@ function addFailoverSection(map) {
 	o = section.option(form.Value, 'minimum_snr', _('Minimum SNR (dB)'));
 	o.datatype = 'integer';
 	o.placeholder = '5';
+	o.depends('check_snr', '1');
 
 	o = section.option(form.Value, 'flap_wait', _('SIM Flapping Protection Wait (Seconds)'), _('Default 300s'));
 	o.datatype = 'uinteger';
@@ -84,6 +86,7 @@ function addFailoverSection(map) {
 	o = section.option(form.Value, 'reboot_on_network_loss', _('Reboot on Network Loss (Seconds)'), _('Default 1800s'));
 	o.datatype = 'uinteger';
 	o.placeholder = '1800';
+	o.depends('enable_network_reboot', '1');
 
 	o = section.option(form.Flag, 'check_ping_status', _('Check Ping Status'));
 	o.rmempty = false;
@@ -91,9 +94,13 @@ function addFailoverSection(map) {
 	o = section.option(form.DynamicList, 'ping_ipv4_ips', _('Ping IPs'), _('IPv4 IPs are pinged only when SIM is used in IPv4 mode'));
 	o.datatype = 'ip4addr';
 	o.placeholder = '8.8.8.8';
+	o.depends('check_ping_status', '1');
+	o.depends('check_internet_failure', '1');
 
 	o = section.option(form.DynamicList, 'ping_ipv6_ips', _('Ping IPv6 IPs'), _('IPv6 IPs are pinged only when SIM is used in IPv6 mode'));
 	o.datatype = 'ip6addr';
+	o.depends('check_ping_status', '1');
+	o.depends('check_internet_failure', '1');
 
 	o = section.option(form.Value, 'minimum_responses', _('Minimum Responses'));
 	o.datatype = 'uinteger';
@@ -102,10 +109,14 @@ function addFailoverSection(map) {
 	o = section.option(form.Value, 'minimum_ping_responses', _('Minimum Ping Responses'));
 	o.datatype = 'uinteger';
 	o.placeholder = '1';
+	o.depends('check_ping_status', '1');
+	o.depends('check_internet_failure', '1');
 
 	o = section.option(form.Value, 'response_timeout', _('Response Timeout'));
 	o.datatype = 'uinteger';
 	o.placeholder = '10';
+	o.depends('check_ping_status', '1');
+	o.depends('check_internet_failure', '1');
 
 	o = section.option(form.Flag, 'check_link_performance', _('Check Link Performance'));
 	o.rmempty = false;
@@ -113,10 +124,12 @@ function addFailoverSection(map) {
 	o = section.option(form.Value, 'failure_latency', _('Failure Latency (ms)'));
 	o.datatype = 'uinteger';
 	o.placeholder = '450';
+	o.depends('check_link_performance', '1');
 
 	o = section.option(form.Value, 'acceptable_latency', _('Acceptable Latency (ms)'));
 	o.datatype = 'uinteger';
 	o.placeholder = '200';
+	o.depends('check_link_performance', '1');
 
 	o = section.option(form.Flag, 'check_data_usage', _('Check Data Usage'));
 	o.rmempty = false;
@@ -124,10 +137,12 @@ function addFailoverSection(map) {
 	o = section.option(form.Value, 'sim1_quota_day', _('SIM1 Quota Per Day (GB)'));
 	o.datatype = 'uinteger';
 	o.placeholder = '2';
+	o.depends('check_data_usage', '1');
 
 	o = section.option(form.Value, 'sim2_quota_day', _('SIM2 Quota Per Day (GB)'));
 	o.datatype = 'uinteger';
 	o.placeholder = '2';
+	o.depends('check_data_usage', '1');
 
 	o = section.option(form.Value, 'link_check_interval', _('Link Check Interval (Seconds)'));
 	o.datatype = 'uinteger';
@@ -149,17 +164,14 @@ function addFailoverSection(map) {
 	o = section.option(form.Value, 'primary_retry_interval', _('Primary Retry Interval (Seconds)'));
 	o.datatype = 'uinteger';
 	o.placeholder = '3600';
-	o.depends('enable_primary_failback', '1');
 
 	o = section.option(form.Value, 'primary_retry_settle_time', _('Primary Retry Settle Time (Seconds)'));
 	o.datatype = 'uinteger';
 	o.placeholder = '60';
-	o.depends('enable_primary_failback', '1');
 
 	o = section.option(form.Flag, 'primary_retry_check_internet', _('Check Internet Before Staying on Primary'));
 	o.rmempty = false;
 	o.default = '1';
-	o.depends('enable_primary_failback', '1');
 
 	o = section.option(form.Flag, 'restart_qtcm_after_switch', _('Restart QTCM After SIM Switch'));
 	o.rmempty = false;
