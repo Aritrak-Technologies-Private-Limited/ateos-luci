@@ -1,0 +1,20 @@
+#!/bin/sh
+
+case "$ACTION" in
+	ifup|ifupdate)
+		;;
+	*)
+		exit 0
+		;;
+esac
+
+[ -x /usr/bin/qtcm-status.sh ] || exit 0
+
+configured="$(uci -q get qtcm.main.network_interface 2>/dev/null)"
+target="${DEVICE:-$configured}"
+
+case "$INTERFACE:$DEVICE:$configured" in
+	cellular:*|l3:*|*:"$configured":*)
+		/usr/bin/qtcm-status.sh leds "$target" >/dev/null 2>&1
+		;;
+esac
