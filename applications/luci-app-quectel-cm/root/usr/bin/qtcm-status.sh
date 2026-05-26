@@ -107,6 +107,47 @@ active_sim_source() {
 	esac
 }
 
+switch_value_for_sim() {
+	local sim="$1"
+	local value
+
+	case "$sim" in
+		1)
+			value="$(read_uci qtcm.sim_switch.sim1_value)"
+			[ -n "$value" ] || value="1"
+			printf '%s' "$value"
+			;;
+		2)
+			value="$(read_uci qtcm.sim_switch.sim2_value)"
+			[ -n "$value" ] || value="0"
+			printf '%s' "$value"
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+ensure_gpio_sim_switch_state() {
+	local active_sim="$1"
+	local mode target current
+
+	mode="$(read_uci qtcm.sim_switch.mode)"
+	[ -n "$mode" ] || mode="gpio"
+	[ "$mode" = "gpio" ] || return 0
+
+	target="$(switch_value_for_sim "$active_sim")" || return 0
+	current="$(read_uci system.sim_switch.value)"
+	[ "$current" = "$target" ] && return 0
+
+	uci -q set "system.sim_switch.value=$target" || return 0
+	uci -q commit system || return 0
+
+	if [ -x /etc/init.d/gpio_switch ]; then
+		/etc/init.d/gpio_switch restart >/dev/null 2>&1
+	fi
+}
+
 sync_sim_leds() {
 	local sim="$1"
 	local sim1="/sys/class/leds/led:sim1/brightness"
@@ -649,6 +690,7 @@ main() {
 	[ "$active_sim" = "2" ] || active_sim="1"
 	[ -n "$active_sim_gpio" ] && active_sim="$active_sim_gpio"
 	active_sim_src="$(active_sim_source)"
+	ensure_gpio_sim_switch_state "$active_sim"
 	sync_sim_leds "$active_sim"
 	sim1_info="$(sim_summary 1)"
 	sim2_info="$(sim_summary 2)"
