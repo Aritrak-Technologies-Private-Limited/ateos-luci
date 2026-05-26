@@ -180,13 +180,14 @@ function parseServingCell(raw) {
 	}
 
 	for (var j = 0; j < fields.length; j++) {
-		if (/LTE/i.test(fields[j]) && fields.length >= j + 17) {
+		if (/LTE/i.test(fields[j]) && fields.length > j + 13) {
+			/* QENG LTE: ..., tac, rsrp, rsrq, rssi, sinr, srxlev */
 			info.rsrq = info.rsrq != null ? info.rsrq : numericValue(fields[j + 12]);
 			info.rssi = info.rssi != null ? info.rssi : numericValue(fields[j + 13]);
 			break;
 		}
 
-		if (/NR5G/i.test(fields[j]) && fields.length >= j + 15) {
+		if (/NR5G/i.test(fields[j]) && fields.length > j + 12) {
 			info.rsrq = info.rsrq != null ? info.rsrq : numericValue(fields[j + 12]);
 			break;
 		}
