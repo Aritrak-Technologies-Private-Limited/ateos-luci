@@ -39,6 +39,10 @@ log "manual switch SIM $old -> SIM $target"
 uci -q set "qtcm.main.active_sim=$target" || exit 1
 uci -q commit qtcm || exit 1
 
+mkdir -p /tmp/qtcmsim-failover
+date +%s > /tmp/qtcmsim-failover/last_switch
+rm -f /tmp/qtcmsim-failover/loss_since
+
 if [ -x /etc/qtcm_custom_failover_script.sh ]; then
 	NEW_SIM="$target" OLD_SIM="$old" SWITCH_REASON="manual override" ACTIVE_INTERFACE="" SIGNAL_DBM="" \
 		/etc/qtcm_custom_failover_script.sh "$target" "$old" "manual override" "" "" || exit 1
