@@ -1,0 +1,18 @@
+{
+	"luci-app-internet-healthd": {
+		"description": "Grant access for luci-app-internet-healthd",
+		"read": {
+			"cgi-io": [ "exec" ],
+			"file": {
+				"/usr/libexec/internet-healthd-status": [ "exec" ]
+			},
+			"uci": [ "internet-healthd", "firewall", "network" ],
+			"ubus": {
+				"network.interface": [ "dump" ]
+			}
+		},
+		"write": {
+			"uci": [ "internet-healthd" ]
+		}
+	}
+}
