@@ -15,9 +15,9 @@ function serviceStatusText(running) {
 }
 
 function fieldRow(label, value) {
-	return E('div', { 'class': 'cbi-value' }, [
-		E('label', { 'class': 'cbi-value-title' }, label),
-		E('div', { 'class': 'cbi-value-field' }, value)
+	return E('div', { 'class': 'qtcm-status-row' }, [
+		E('div', { 'class': 'qtcm-status-label' }, label),
+		E('div', { 'class': 'qtcm-status-value' }, value)
 	]);
 }
 
@@ -58,7 +58,7 @@ return view.extend({
 	},
 
 	renderStatus: function(container, data) {
-		dom.content(container, [
+		dom.content(container, E('div', { 'class': 'qtcm-status-grid' }, [
 			fieldRow(_('Service'), serviceStatusText(data.service_running)),
 			fieldRow(_('Active SIM'), data.active_sim == '1' ? _('SIM 1') : data.active_sim == '2' ? _('SIM 2') : data.active_sim),
 			fieldRow(_('Active SIM source'), data.active_sim_source),
@@ -81,11 +81,11 @@ return view.extend({
 			fieldRow(_('SNR'), data.signal_snr),
 			fieldRow(_('Interface'), data.interface),
 			fieldRow(_('Data source'), data.modem_source)
-		]);
+		]));
 	},
 
 	render: function() {
-		var statusNode = E('div', { 'class': 'cbi-section' }, [
+		var statusNode = E('div', { 'class': 'cbi-section qtcm-status-section' }, [
 			E('div', { 'class': 'cbi-section-descr' }, _('Click refresh to fetch the latest modem status.'))
 		]);
 		var resultNode = E('div', { 'class': 'cbi-section-descr' });
@@ -114,6 +114,14 @@ return view.extend({
 
 		return refreshStatus().then(function() {
 			return E('div', { 'class': 'cbi-map' }, [
+				E('style', {}, [
+					'.qtcm-status-section{padding:1.25rem 1.5rem}',
+					'.qtcm-status-grid{display:grid;grid-template-columns:max-content minmax(0,42rem);column-gap:1rem;row-gap:.72rem;align-items:start;max-width:64rem;margin:0 auto}',
+					'.qtcm-status-row{display:contents}',
+					'.qtcm-status-label{text-align:right;font-weight:600;line-height:1.45;white-space:nowrap;color:#111}',
+					'.qtcm-status-value{min-width:0;line-height:1.45;overflow-wrap:anywhere;color:#111}',
+					'@media(max-width:720px){.qtcm-status-section{padding:1rem}.qtcm-status-grid{grid-template-columns:1fr;row-gap:.25rem;margin:0}.qtcm-status-label{text-align:left}.qtcm-status-value{margin-bottom:.55rem}}'
+				].join('')),
 				E('h2', _('Quectel CM Status')),
 				E('div', { 'class': 'cbi-map-descr' },
 					_('Review modem status and fetch fresh data with the refresh button.')),
