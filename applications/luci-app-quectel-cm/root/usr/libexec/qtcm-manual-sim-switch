@@ -1,0 +1,54 @@
+#!/bin/sh
+
+NAME="qtcm-manual-sim-switch"
+
+log() {
+	logger -t "$NAME" "$*"
+}
+
+read_uci() {
+	uci -q get "$1" 2>/dev/null
+}
+
+target="$1"
+
+case "$target" in
+	1|2)
+		;;
+	*)
+		log "invalid target SIM '$target'"
+		exit 1
+		;;
+esac
+
+if [ "$(read_uci qtcm.failover.enabled)" = "1" ]; then
+	log "manual SIM switch to SIM $target blocked because failover is enabled"
+	exit 1
+fi
+
+old="$(read_uci qtcm.main.active_sim)"
+[ "$old" = "2" ] || old="1"
+
+[ "$old" = "$target" ] && {
+	log "SIM $target already active"
+	exit 0
+}
+
+log "manual switch SIM $old -> SIM $target"
+
+uci -q set "qtcm.main.active_sim=$target" || exit 1
+uci -q commit qtcm || exit 1
+
+if [ -x /etc/qtcm_custom_failover_script.sh ]; then
+	NEW_SIM="$target" OLD_SIM="$old" SWITCH_REASON="manual override" ACTIVE_INTERFACE="" SIGNAL_DBM="" \
+		/etc/qtcm_custom_failover_script.sh "$target" "$old" "manual override" "" "" || exit 1
+else
+	log "custom switch script is not executable"
+	exit 1
+fi
+
+if [ -x /etc/init.d/qtcm ]; then
+	/etc/init.d/qtcm restart >/dev/null 2>&1 || log "qtcm restart failed after manual SIM switch"
+fi
+
+exit 0

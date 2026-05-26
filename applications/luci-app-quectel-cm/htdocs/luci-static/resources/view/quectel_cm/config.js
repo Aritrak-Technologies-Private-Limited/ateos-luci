@@ -49,6 +49,44 @@ function addFirewallZoneValues(o) {
 	});
 }
 
+function failoverEnabled() {
+	return cfgvalue('qtcm', 'failover', 'enabled', '0') == '1';
+}
+
+function activeSimFromGpio() {
+	var mode = cfgvalue('qtcm', 'sim_switch', 'mode', 'gpio');
+	var value = cfgvalue('system', 'sim_switch', 'value', '');
+	var sim1Value = cfgvalue('qtcm', 'sim_switch', 'sim1_value', '1');
+	var sim2Value = cfgvalue('qtcm', 'sim_switch', 'sim2_value', '0');
+
+	if (mode != 'gpio')
+		return '';
+
+	if (value == sim1Value)
+		return '1';
+
+	if (value == sim2Value)
+		return '2';
+
+	return '';
+}
+
+function activeSimValue() {
+	return activeSimFromGpio() || cfgvalue('qtcm', 'main', 'active_sim', '1');
+}
+
+function activeSimSourceText() {
+	var mode = cfgvalue('qtcm', 'sim_switch', 'mode', 'gpio');
+
+	if (mode == 'gpio' && activeSimFromGpio())
+		return _('GPIO state');
+
+	if (mode == 'module')
+		return _('module switch state');
+
+	return _('QTCM configuration');
+}
+
 function parentSection(node) {
 	while (node && node.parentNode) {
 		if (node.classList && node.classList.contains('cbi-section'))
@@ -93,31 +131,38 @@ function arrangeSimSections(node) {
 }
 
 function addSimSection(map, sectionId, label, simNo) {
+	var failoverControlsActive = failoverEnabled();
 	var section = map.section(form.NamedSection, sectionId, 'sim',
-		_('%s%s').format(label, cfgvalue('qtcm', 'main', 'active_sim', '1') == String(simNo) ? _(' (Active)') : ''));
+		_('%s%s').format(label, activeSimValue() == String(simNo)
+			? (failoverControlsActive ? _(' (Failover Active)') : _(' (Active)'))
+			: ''));
 	var o;
 
 	o = section.option(form.DummyValue, '_active', _('Active SIM'));
 	o.rawhtml = true;
 	o.cfgvalue = function() {
-		return cfgvalue('qtcm', 'main', 'active_sim', '1') == String(simNo)
-			? E('strong', _('Active'))
+		var active = activeSimValue() == String(simNo);
+
+		return active
+			? E('strong', failoverControlsActive ? _('Active (failover)') : _('Active'))
 			: E('span', _('Inactive'));
 	};
 
-	o = section.option(form.Button, '_set_active', _('Set Active'));
-	o.inputtitle = _('Set Active');
-	o.inputstyle = 'apply';
-	o.onclick = function() {
-		uci.set('qtcm', 'main', 'active_sim', String(simNo));
-
-		return uci.save()
-			.then(L.bind(L.ui.changes.init, L.ui.changes))
-			.then(L.bind(L.ui.changes.displayChanges, L.ui.changes))
-			.then(function() {
-				ui.addNotification(null, E('p', _('%s selected as active SIM. Apply changes to make it persistent.').format(label)));
-			});
-	};
+	if (!failoverControlsActive) {
+		o = section.option(form.Button, '_set_active', _('Set Active'));
+		o.inputtitle = _('Set Active');
+		o.inputstyle = 'apply';
+		o.onclick = function() {
+			return fs.exec('/usr/libexec/qtcm-manual-sim-switch', [ String(simNo) ])
+				.then(function() {
+					ui.addNotification(null, E('p', _('%s selected as active SIM.').format(label)));
+					window.location.reload();
+				})
+				.catch(function(err) {
+					ui.addNotification(null, E('p', _('Unable to switch active SIM: %s').format(err.message || err)));
+				});
+		};
+	}
 
 	o = section.option(form.Flag, 'enabled', _('Enable'));
 	o.rmempty = false;
@@ -172,6 +217,7 @@ return view.extend({
 		return Promise.all([
 			uci.load('qtcm'),
 			uci.load('firewall'),
+			uci.load('system'),
 			callServiceList('qtcm').catch(function() { return {}; })
 		]);
 	},
@@ -347,10 +393,42 @@ return view.extend({
 		o.placeholder = '/tmp/quectel-usbmon.log';
 		o.optional = true;
 
-		o = section.taboption('advanced', form.ListValue, 'active_sim', _('Active SIM'));
-		o.value('1', _('SIM 1'));
-		o.value('2', _('SIM 2'));
+		var switchSection = map.section(form.NamedSection, 'sim_switch', 'sim_switch', _('SIM Switch Backend'));
+
+		o = switchSection.option(form.ListValue, 'mode', _('Switch mode'));
+		o.value('gpio', _('External GPIO'));
+		o.value('module', _('Module AT command'));
+		o.value('none', _('None'));
+		o.default = 'gpio';
+
+		o = switchSection.option(form.Value, 'sim1_value', _('SIM 1 value'));
+		o.placeholder = '1';
+
+		o = switchSection.option(form.Value, 'sim2_value', _('SIM 2 value'));
+		o.placeholder = '0';
+
+		o = switchSection.option(form.Value, 'command', _('Module switch command'));
+		o.placeholder = 'AT+QDSIM';
+		o.depends('mode', 'module');
+
+		o = switchSection.option(form.Flag, 'power_cycle_mpcie', _('Power-cycle mPCIe after switch'));
+		o.rmempty = false;
 		o.default = '1';
+
+		if (!failoverEnabled()) {
+			o = section.taboption('advanced', form.ListValue, 'active_sim', _('Active SIM'));
+			o.value('1', _('SIM 1'));
+			o.value('2', _('SIM 2'));
+			o.default = '1';
+		} else {
+			o = section.taboption('advanced', form.DummyValue, '_active_sim_failover', _('Active SIM'));
+			o.rawhtml = true;
+			o.cfgvalue = function() {
+				return E('span', activeSimValue() == '2'
+					? _('SIM 2 (controlled by failover, read from %s)').format(activeSimSourceText())
+					: _('SIM 1 (controlled by failover, read from %s)').format(activeSimSourceText()));
+			};
+		}
 
 		addSimSection(map, 'sim1', _('SIM 1'), 1);
 		addSimSection(map, 'sim2', _('SIM 2'), 2);
