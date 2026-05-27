@@ -41,5 +41,16 @@
 		"depends": {
 			"acl": [ "luci-app-quectel-cm" ]
 		}
+	},
+	"admin/services/quectel_cm/troubleshoot": {
+		"title": "Troubleshoot",
+		"order": 40,
+		"action": {
+			"type": "view",
+			"path": "quectel_cm/troubleshoot"
+		},
+		"depends": {
+			"acl": [ "luci-app-quectel-cm" ]
+		}
 	}
 }

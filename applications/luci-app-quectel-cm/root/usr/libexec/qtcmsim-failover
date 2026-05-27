@@ -6,6 +6,8 @@ LAST_SWITCH_FILE="$STATE_DIR/last_switch"
 LOSS_SINCE_FILE="$STATE_DIR/loss_since"
 USAGE_FILE="$STATE_DIR/usage"
 LAST_PRIMARY_RETRY_FILE="$STATE_DIR/last_primary_retry"
+LAST_FAILED_SIM_FILE="$STATE_DIR/last_failed_sim"
+TROUBLESHOOTER="/usr/libexec/qtcm-troubleshooter"
 
 log() {
 	logger -t "$NAME" "$*"
@@ -21,6 +23,15 @@ cfg() {
 	local value
 
 	value="$(read_uci "qtcm.failover.$option")"
+	[ -n "$value" ] && printf '%s' "$value" || printf '%s' "$fallback"
+}
+
+tcfg() {
+	local option="$1"
+	local fallback="$2"
+	local value
+
+	value="$(read_uci "qtcm.troubleshoot.$option")"
 	[ -n "$value" ] && printf '%s' "$value" || printf '%s' "$fallback"
 }
 
@@ -61,6 +72,20 @@ json_value() {
 
 status_json() {
 	/usr/bin/qtcm-status.sh 2>/dev/null
+}
+
+troubleshooter_event() {
+	local event="$1"
+	local detail="$2"
+
+	[ -x "$TROUBLESHOOTER" ] || return 0
+	"$TROUBLESHOOTER" event "$event" "$detail" >/dev/null 2>&1 || \
+		log "troubleshooter event '$event' failed"
+}
+
+troubleshooter_reset() {
+	[ -x "$TROUBLESHOOTER" ] || return 0
+	"$TROUBLESHOOTER" reset >/dev/null 2>&1
 }
 
 now() {
@@ -158,6 +183,14 @@ interface_bytes() {
 	rx="$(cat "/sys/class/net/$iface/statistics/rx_bytes")"
 	tx="$(cat "/sys/class/net/$iface/statistics/tx_bytes")"
 	printf '%s' "$((rx + tx))"
+}
+
+interface_has_ip() {
+	local iface="$1"
+
+	[ -n "$iface" ] && [ "$iface" != "Unknown" ] || return 1
+	command -v ip >/dev/null 2>&1 || return 0
+	ip -o addr show dev "$iface" 2>/dev/null | grep -q ' inet '
 }
 
 quota_exceeded() {
@@ -330,9 +363,36 @@ handle_network_loss_reboot() {
 	fi
 }
 
+process_failure() {
+	local sim="$1"
+	local target="$2"
+	local reason="$3"
+	local event="$4"
+	local iface="$5"
+	local signal_dbm="$6"
+	local last_failed_sim
+
+	last_failed_sim="$(cat "$LAST_FAILED_SIM_FILE" 2>/dev/null)"
+
+	if [ -n "$last_failed_sim" ] && [ "$last_failed_sim" != "$sim" ]; then
+		log "SIM $sim failed after SIM $last_failed_sim already failed, sending '$event' to troubleshooter"
+		troubleshooter_event "${event:-post_failover_failure}" "$reason"
+		return 0
+	fi
+
+	if sim_enabled "$target" && switch_to_sim "$target" "$sim" "$reason" "$iface" "$signal_dbm"; then
+		printf '%s\n' "$sim" > "$LAST_FAILED_SIM_FILE"
+		return 0
+	fi
+
+	log "SIM switch could not restore service path, sending '$event' to troubleshooter"
+	troubleshooter_event "${event:-post_failover_failure}" "$reason"
+}
+
 check_once() {
 	local json sim target reason iface signal_dbm signal_abs threshold failed=0 primary backup
 	local signal_snr min_snr trigger ip_type ipv4_hosts ipv6_hosts timeout min_ping got latency fail_latency network_status
+	local sim_status modem_source failure_event
 
 	json="$(status_json)"
 	sim="$(active_sim)"
@@ -343,69 +403,95 @@ check_once() {
 	signal_dbm="$(printf '%s' "$json" | json_value signal_dbm)"
 	signal_snr="$(printf '%s' "$json" | json_value signal_snr)"
 	network_status="$(printf '%s' "$json" | json_value network_status)"
+	sim_status="$(printf '%s' "$json" | json_value sim_status)"
+	modem_source="$(printf '%s' "$json" | json_value modem_source)"
 	reason=""
 
-	for trigger in $(priority_sequence); do
-		case "$trigger" in
-			internet)
-				[ "$(cfg check_internet_failure "$(cfg check_ping_status 0)")" = "1" ] || continue
-				timeout="$(cfg response_timeout 10)"
-				min_ping="$(cfg minimum_ping_responses 1)"
-				ip_type="$(read_uci "qtcm.sim${sim}.ip_type")"
-				ipv4_hosts="$(read_uci qtcm.failover.ping_ipv4_ips)"
-				ipv6_hosts="$(read_uci qtcm.failover.ping_ipv6_ips)"
-				got=0
+	if [ "$(tcfg check_modem_response 1)" = "1" ] && \
+		{ [ "$modem_source" = "No modem AT port detected" ] || [ "$sim_status" = "Unknown" ]; }; then
+		failed=1
+		failure_event="modem_unresponsive"
+		reason="modem AT response unavailable"
+	elif [ "$(tcfg check_sim_error 1)" = "1" ] && [ "$sim_status" = "No" ]; then
+		failed=1
+		failure_event="sim_error"
+		reason="SIM error or SIM not inserted"
+	elif [ "$(tcfg check_interface_ip 1)" = "1" ] && ! interface_has_ip "$iface"; then
+		failed=1
+		failure_event="interface_no_ip"
+		reason="interface $iface has no IPv4 address"
+	elif [ "$(tcfg check_registration 1)" = "1" ] && [ "$network_status" = "No" ]; then
+		failed=1
+		failure_event="registration_failed"
+		reason="network registration failed"
+	else
+		for trigger in $(priority_sequence); do
+			case "$trigger" in
+				internet)
+					[ "$(cfg check_internet_failure "$(cfg check_ping_status 0)")" = "1" ] || continue
+					timeout="$(cfg response_timeout 10)"
+					min_ping="$(cfg minimum_ping_responses 1)"
+					ip_type="$(read_uci "qtcm.sim${sim}.ip_type")"
+					ipv4_hosts="$(read_uci qtcm.failover.ping_ipv4_ips)"
+					ipv6_hosts="$(read_uci qtcm.failover.ping_ipv6_ips)"
+					got=0
 
-				case "$ip_type" in
-					ipv6) got="$(ping_hosts 6 "$ipv6_hosts" "$timeout")" ;;
-					ipv4v6) got=$(( $(ping_hosts 4 "$ipv4_hosts" "$timeout") + $(ping_hosts 6 "$ipv6_hosts" "$timeout") )) ;;
-					*) got="$(ping_hosts 4 "$ipv4_hosts" "$timeout")" ;;
-				esac
+					case "$ip_type" in
+						ipv6) got="$(ping_hosts 6 "$ipv6_hosts" "$timeout")" ;;
+						ipv4v6) got=$(( $(ping_hosts 4 "$ipv4_hosts" "$timeout") + $(ping_hosts 6 "$ipv6_hosts" "$timeout") )) ;;
+						*) got="$(ping_hosts 4 "$ipv4_hosts" "$timeout")" ;;
+					esac
 
-				if [ "$got" -lt "$min_ping" ]; then
-					failed=1
-					reason="internet failure: ping responses $got below minimum $min_ping"
-				fi
-				;;
-			snr)
-				[ "$(cfg check_snr 0)" = "1" ] || continue
-				min_snr="$(cfg minimum_snr 5)"
-				if [ "$signal_snr" != "Unknown" ] && [ "$signal_snr" -lt "$min_snr" ] 2>/dev/null; then
-					failed=1
-					reason="SNR ${signal_snr} dB below minimum ${min_snr} dB"
-				fi
-				;;
-			latency)
-				[ "$(cfg check_link_performance 0)" = "1" ] || continue
-				timeout="$(cfg response_timeout 10)"
-				fail_latency="$(cfg failure_latency 450)"
-				ipv4_hosts="$(read_uci qtcm.failover.ping_ipv4_ips)"
-				latency="$(max_ping_latency "$ipv4_hosts" "$timeout")"
+					if [ "$got" -lt "$min_ping" ]; then
+						failed=1
+						failure_event="internet_failure"
+						reason="internet failure: ping responses $got below minimum $min_ping"
+					fi
+					;;
+				snr)
+					[ "$(cfg check_snr 0)" = "1" ] || continue
+					min_snr="$(cfg minimum_snr 5)"
+					if [ "$signal_snr" != "Unknown" ] && [ "$signal_snr" -lt "$min_snr" ] 2>/dev/null; then
+						failed=1
+						failure_event="post_failover_failure"
+						reason="SNR ${signal_snr} dB below minimum ${min_snr} dB"
+					fi
+					;;
+				latency)
+					[ "$(cfg check_link_performance 0)" = "1" ] || continue
+					timeout="$(cfg response_timeout 10)"
+					fail_latency="$(cfg failure_latency 450)"
+					ipv4_hosts="$(read_uci qtcm.failover.ping_ipv4_ips)"
+					latency="$(max_ping_latency "$ipv4_hosts" "$timeout")"
 
-				if [ "$latency" -ge "$fail_latency" ] && [ "$latency" -gt 0 ]; then
-					failed=1
-					reason="link latency ${latency}ms exceeded ${fail_latency}ms"
-				fi
-				;;
-			quota)
-				if quota_exceeded "$sim" "$iface"; then
-					failed=1
-					reason="daily quota exceeded for SIM $sim"
-				fi
-				;;
-			rssi)
-				[ "$(cfg check_signal_strength 1)" = "1" ] || continue
-				threshold="$(cfg switch_above_signal 75)"
-				signal_abs="$(absolute_dbm "$signal_dbm")"
-				if [ -n "$signal_abs" ] && [ "$signal_abs" -gt "$threshold" ]; then
-					failed=1
-					reason="RSSI ${signal_dbm} dBm below threshold -${threshold} dBm"
-				fi
-				;;
-		esac
+					if [ "$latency" -ge "$fail_latency" ] && [ "$latency" -gt 0 ]; then
+						failed=1
+						failure_event="post_failover_failure"
+						reason="link latency ${latency}ms exceeded ${fail_latency}ms"
+					fi
+					;;
+				quota)
+					if quota_exceeded "$sim" "$iface"; then
+						failed=1
+						failure_event="post_failover_failure"
+						reason="daily quota exceeded for SIM $sim"
+					fi
+					;;
+				rssi)
+					[ "$(cfg check_signal_strength 1)" = "1" ] || continue
+					threshold="$(cfg switch_above_signal 75)"
+					signal_abs="$(absolute_dbm "$signal_dbm")"
+					if [ -n "$signal_abs" ] && [ "$signal_abs" -gt "$threshold" ]; then
+						failed=1
+						failure_event="post_failover_failure"
+						reason="RSSI ${signal_dbm} dBm below threshold -${threshold} dBm"
+					fi
+					;;
+			esac
 
-		[ "$failed" = "1" ] && break
-	done
+			[ "$failed" = "1" ] && break
+		done
+	fi
 
 	if [ "$failed" = "0" ] && [ "$network_status" = "No" ]; then
 		handle_network_loss_reboot 1
@@ -413,8 +499,13 @@ check_once() {
 		handle_network_loss_reboot "$failed"
 	fi
 
-	[ "$failed" = "1" ] && switch_to_sim "$target" "$sim" "$reason" "$iface" "$signal_dbm"
-	[ "$failed" = "0" ] && maybe_try_primary_sim
+	if [ "$failed" = "1" ]; then
+		process_failure "$sim" "$target" "$reason" "$failure_event" "$iface" "$signal_dbm"
+	else
+		rm -f "$LAST_FAILED_SIM_FILE"
+		troubleshooter_reset
+		maybe_try_primary_sim
+	fi
 }
 
 mkdir -p "$STATE_DIR"
