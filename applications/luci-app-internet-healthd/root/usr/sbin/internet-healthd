@@ -33,10 +33,64 @@ log_event() {
 	local message="$1" log_file now
 
 	log_file="$(uci_get main event_log)"
-	[ -n "$log_file" ] || log_file="/var/log/internet-healthd.log"
+	[ -n "$log_file" ] || log_file="/tmp/internet-healthd.log"
 	now="$(date '+%Y-%m-%d %H:%M:%S')"
 	printf '%s %s\n' "$now" "$message" >> "$log_file"
 	logger -t internet-healthd "$message"
+}
+
+mwan3_enabled() {
+	bool_enabled "$(uci_get main mwan3_integration)" || return 1
+	[ -r /etc/config/mwan3 ] || return 1
+	[ -x /etc/init.d/mwan3 ] || return 1
+	return 0
+}
+
+mwan3_primary_interface() {
+	MWAN3_PRIMARY_IFACE=""
+	MWAN3_PRIMARY_METRIC="999999"
+
+	_mwan3_member_cb() {
+		local section="$1" iface metric
+
+		config_get iface "$section" interface
+		config_get metric "$section" metric
+		[ -n "$iface" ] || return 0
+		[ -n "$metric" ] || metric="999999"
+
+		if [ "$metric" -lt "$MWAN3_PRIMARY_METRIC" ] 2>/dev/null; then
+			MWAN3_PRIMARY_METRIC="$metric"
+			MWAN3_PRIMARY_IFACE="$iface"
+		fi
+	}
+
+	config_load mwan3
+	config_foreach _mwan3_member_cb member
+	printf '%s' "$MWAN3_PRIMARY_IFACE"
+}
+
+mwan3_recover_interface() {
+	local iface="$1" reason="$2"
+
+	mwan3_enabled || return 1
+
+	log_event "$iface recovery: asking mwan3 to recover ($reason)"
+	if command -v mwan3 >/dev/null 2>&1; then
+		mwan3 ifup "$iface" >/dev/null 2>&1
+	fi
+	/etc/init.d/mwan3 reload >/dev/null 2>&1 || /etc/init.d/mwan3 restart >/dev/null 2>&1
+}
+
+mwan3_failback_if_primary() {
+	local iface="$1" reason="$2" primary
+
+	mwan3_enabled || return 1
+	bool_enabled "$(uci_get main failback_to_primary)" || return 1
+
+	primary="$(mwan3_primary_interface)"
+	[ -n "$primary" ] && [ "$iface" = "$primary" ] || return 1
+
+	mwan3_recover_interface "$iface" "$reason"
 }
 
 discover_zone_networks() {
@@ -66,10 +120,6 @@ is_excluded_interface() {
 
 discover_all_interfaces() {
 	ubus call network.interface dump 2>/dev/null | jsonfilter -q -e '@.interface[*].interface' 2>/dev/null
-	for dev in /sys/class/net/*; do
-		[ -e "$dev" ] || continue
-		basename "$dev"
-	done
 }
 
 discover_configured_interfaces() {
@@ -201,34 +251,122 @@ recovery_option() {
 	printf '%s' "$value"
 }
 
+recovery_list() {
+	local iface="$1" option="$2" value
+
+	value="$(uci -q get "$CONFIG.$iface.$option")"
+	if [ -z "$value" ]; then
+		_recovery_list_cb() {
+			local section="$1" section_iface section_value
+			config_get section_iface "$section" interface
+			[ "$section_iface" = "$iface" ] || return 0
+			config_get section_value "$section" "$option"
+			[ -n "$section_value" ] && value="$section_value"
+		}
+
+		config_load "$CONFIG"
+		config_foreach _recovery_list_cb recovery
+	fi
+	[ -n "$value" ] || value="$(uci -q get "$CONFIG.defaults.$option")"
+	printf '%s' "$value"
+}
+
+recovery_context() {
+	local iface="$1" status dev ipaddr gateway
+
+	status="$(iface_status "$iface")"
+	dev="$(json_value "$status" '@.l3_device')"
+	[ -n "$dev" ] || dev="$(json_value "$status" '@.device')"
+	[ -n "$dev" ] || [ ! -e "/sys/class/net/$iface" ] || dev="$iface"
+	ipaddr="$(interface_ipv4 "$status" "$dev")"
+	gateway="$(json_value "$status" '@.route[@.target="0.0.0.0"][@.mask=0].nexthop')"
+	[ -n "$gateway" ] || gateway="$(json_value "$status" '@.inactive.route[@.target="0.0.0.0"][@.mask=0].nexthop')"
+	[ -n "$gateway" ] || gateway="$(uci -q get "network.$iface.gateway")"
+
+	printf '%s|%s|%s' "$dev" "$ipaddr" "$gateway"
+}
+
+expand_custom_command() {
+	local command="$1" iface="$2" dev="$3" ipaddr="$4" gateway="$5"
+
+	command="${command//\{interface\}/$iface}"
+	command="${command//\{device\}/$dev}"
+	command="${command//\{ip\}/$ipaddr}"
+	command="${command//\{gateway\}/$gateway}"
+	printf '%s' "$command"
+}
+
+run_custom_commands() {
+	local iface="$1" command expanded context dev ipaddr gateway oldifs
+
+	context="$(recovery_context "$iface")"
+	oldifs="$IFS"
+	IFS='|'
+	set -- $context
+	IFS="$oldifs"
+	dev="$1"
+	ipaddr="$2"
+	gateway="$3"
+
+	while IFS= read -r command; do
+		[ -n "$command" ] || continue
+		expanded="$(expand_custom_command "$command" "$iface" "$dev" "$ipaddr" "$gateway")"
+		log_event "$iface recovery: running custom command"
+		/bin/sh -c "$expanded" >/dev/null 2>&1
+	done <<EOF
+$(recovery_list "$iface" custom_command)
+EOF
+}
+
+run_recovery_step() {
+	local iface="$1" step="$2" failures="$3"
+
+	case "$step" in
+		restart_interface)
+			bool_enabled "$(recovery_option "$iface" restart_interface)" || return 0
+			log_event "$iface recovery: restarting interface after $failures failures"
+			ifdown "$iface" >/dev/null 2>&1
+			sleep 2
+			ifup "$iface" >/dev/null 2>&1
+			;;
+		restart_modem)
+			bool_enabled "$(recovery_option "$iface" restart_modem)" || return 0
+			log_event "$iface recovery: restarting modem service"
+			/etc/init.d/quectel-cm restart >/dev/null 2>&1 || /etc/init.d/qtcm restart >/dev/null 2>&1
+			;;
+		restart_mwan3)
+			bool_enabled "$(recovery_option "$iface" restart_mwan3)" || return 0
+			mwan3_recover_interface "$iface" "configured recovery step"
+			;;
+		restart_network)
+			bool_enabled "$(recovery_option "$iface" restart_network)" || return 0
+			log_event "$iface recovery: restarting network"
+			/etc/init.d/network restart >/dev/null 2>&1
+			;;
+		custom_command)
+			run_custom_commands "$iface"
+			;;
+		reboot_router)
+			bool_enabled "$(recovery_option "$iface" reboot_router)" || return 0
+			log_event "$iface recovery: rebooting router"
+			reboot
+			;;
+	esac
+}
+
 run_recovery() {
-	local iface="$1" failures="$2" threshold
+	local iface="$1" failures="$2" threshold step steps
 
 	threshold="$(recovery_option "$iface" failure_threshold)"
 	[ -n "$threshold" ] || threshold="3"
 	[ "$failures" -ge "$threshold" ] || return 0
 
-	if bool_enabled "$(recovery_option "$iface" restart_interface)"; then
-		log_event "$iface recovery: restarting interface after $failures failures"
-		ifdown "$iface" >/dev/null 2>&1
-		sleep 2
-		ifup "$iface" >/dev/null 2>&1
-	fi
+	steps="$(recovery_list "$iface" recovery_step)"
+	[ -n "$steps" ] || steps="restart_interface restart_modem restart_network reboot_router"
 
-	if bool_enabled "$(recovery_option "$iface" restart_modem)"; then
-		log_event "$iface recovery: restarting modem service"
-		/etc/init.d/quectel-cm restart >/dev/null 2>&1 || /etc/init.d/qtcm restart >/dev/null 2>&1
-	fi
-
-	if bool_enabled "$(recovery_option "$iface" restart_network)"; then
-		log_event "$iface recovery: restarting network"
-		/etc/init.d/network restart >/dev/null 2>&1
-	fi
-
-	if bool_enabled "$(recovery_option "$iface" reboot_router)"; then
-		log_event "$iface recovery: rebooting router"
-		reboot
-	fi
+	for step in $steps; do
+		run_recovery_step "$iface" "$step" "$failures"
+	done
 }
 
 repair_default_route() {
@@ -310,7 +448,12 @@ probe_interface() {
 			latency="$(printf '%s\n' "$ping_output" | awk -F'/' '/round-trip|rtt/ { print int($5); exit }')"
 			loss="$(packet_loss "$ping_output")"
 			if [ "$forced_ping_used" = "1" ] && [ "$active_route_score" = "0" ]; then
-				repair_default_route "$iface" "$dev" "$gateway" "$ipaddr"
+				if mwan3_enabled; then
+					mwan3_failback_if_primary "$iface" "healthy primary missing active route" ||
+						mwan3_recover_interface "$iface" "healthy interface missing active route"
+				else
+					repair_default_route "$iface" "$dev" "$gateway" "$ipaddr"
+				fi
 			fi
 			break
 		}

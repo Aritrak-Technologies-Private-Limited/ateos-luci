@@ -3,7 +3,7 @@
 status_file="$(uci -q get internet-healthd.main.status_file)"
 event_log="$(uci -q get internet-healthd.main.event_log)"
 [ -n "$status_file" ] || status_file="/var/run/internet-healthd/status.json"
-[ -n "$event_log" ] || event_log="/var/log/internet-healthd.log"
+[ -n "$event_log" ] || event_log="/tmp/internet-healthd.log"
 
 case "$1" in
 	log)
