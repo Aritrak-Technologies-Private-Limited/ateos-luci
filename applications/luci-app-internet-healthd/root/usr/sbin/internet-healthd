@@ -231,9 +231,31 @@ run_recovery() {
 	fi
 }
 
+repair_default_route() {
+	local iface="$1" dev="$2" gateway="$3" source_ip="$4" metric
+
+	bool_enabled "$(recovery_option "$iface" repair_default_route)" || return 0
+	[ -n "$dev" ] && [ -n "$gateway" ] || return 0
+	command -v ip >/dev/null 2>&1 || return 0
+
+	metric="$(recovery_option "$iface" route_metric)"
+	[ -n "$metric" ] || metric="20"
+
+	if [ -n "$source_ip" ]; then
+		ip route replace default via "$gateway" dev "$dev" src "$source_ip" metric "$metric" >/dev/null 2>&1
+	else
+		ip route replace default via "$gateway" dev "$dev" metric "$metric" >/dev/null 2>&1
+	fi
+
+	if [ "$?" = "0" ]; then
+		log_event "$iface recovery: repaired default route via $gateway dev $dev"
+	fi
+}
+
 probe_interface() {
-	local iface="$1" timeout="$2" status dev up ipaddr gateway score status_text latency loss ping_target dns_target http_url
+	local iface="$1" timeout="$2" status dev up ipaddr gateway score status_text latency loss ping_target dns_target http_url ping_rc
 	local link_score=0 ip_score=0 gateway_score=0 route_score=0 ping_score=0 dns_score=0 http_score=0
+	local active_route_score=0 forced_ping_used=0
 	local ping_output=""
 
 	status="$(iface_status "$iface")"
@@ -258,25 +280,38 @@ probe_interface() {
 		gateway="$(ip -4 route show default dev "$dev" 2>/dev/null | awk '/default/ { print $3; exit }')"
 	fi
 	[ -n "$gateway" ] && gateway_score=15
-	[ -n "$(json_value "$status" '@.route[@.target="0.0.0.0"][@.mask=0].target')" ] && route_score=15
+	[ -n "$(json_value "$status" '@.route[@.target="0.0.0.0"][@.mask=0].target')" ] && {
+		route_score=15
+		active_route_score=15
+	}
 	[ -n "$(json_value "$status" '@.inactive.route[@.target="0.0.0.0"][@.mask=0].target')" ] && route_score=15
-	if [ "$route_score" = "0" ] && [ -n "$dev" ] && command -v ip >/dev/null 2>&1; then
-		ip -4 route show default dev "$dev" 2>/dev/null | grep -q '^default' && route_score=15
+	if [ "$active_route_score" = "0" ] && [ -n "$dev" ] && command -v ip >/dev/null 2>&1; then
+		ip -4 route show default dev "$dev" 2>/dev/null | grep -q '^default' && {
+			route_score=15
+			active_route_score=15
+		}
 	fi
 
 	for ping_target in $(uci_get_list main ping_target); do
+		forced_ping_used=0
 		if [ -n "$dev" ]; then
 			ping_output="$(ping -c 3 -W "$timeout" -I "$dev" "$ping_target" 2>/dev/null)"
 		else
 			ping_output="$(ping -c 3 -W "$timeout" "$ping_target" 2>/dev/null)"
 		fi
-		if [ "$?" != "0" ]; then
+		ping_rc="$?"
+		if [ "$ping_rc" != "0" ]; then
 			ping_output="$(forced_ping_output "$dev" "$gateway" "$ipaddr" "$ping_target" "$timeout")"
+			ping_rc="$?"
+			[ "$ping_rc" = "0" ] && forced_ping_used=1
 		fi
-		[ "$?" = "0" ] && {
+		[ "$ping_rc" = "0" ] && {
 			ping_score=20
 			latency="$(printf '%s\n' "$ping_output" | awk -F'/' '/round-trip|rtt/ { print int($5); exit }')"
 			loss="$(packet_loss "$ping_output")"
+			if [ "$forced_ping_used" = "1" ] && [ "$active_route_score" = "0" ]; then
+				repair_default_route "$iface" "$dev" "$gateway" "$ipaddr"
+			fi
 			break
 		}
 	done
@@ -307,7 +342,10 @@ probe_interface() {
 		"$(json_escape "$iface")" "$(json_escape "$dev")" "$(json_escape "$ipaddr")" "$(json_escape "$gateway")" "$status_text" "$score" "$latency" "$loss" \
 		"$link_score" "$ip_score" "$gateway_score" "$route_score" "$ping_score" "$dns_score" "$http_score"
 
-	return $([ "$status_text" = "offline" ] && printf 1 || printf 0)
+	if [ "$link_score" = "0" ] || [ "$ip_score" = "0" ] || [ "$ping_score" = "0" ]; then
+		return 1
+	fi
+	return 0
 }
 
 run_once() {
@@ -343,15 +381,15 @@ run_once() {
 			old_status="$(cat "$STATE_DIR/$iface.status" 2>/dev/null)"
 			if [ "$status_code" = "0" ]; then
 				rm -f "$fail_file"
-				[ "$old_status" = "offline" ] && log_event "$iface restored"
-				printf '%s' "online" > "$STATE_DIR/$iface.status"
+				[ "$old_status" = "failed" ] && log_event "$iface restored"
+				printf '%s' "healthy" > "$STATE_DIR/$iface.status"
 			else
 				failures="$(cat "$fail_file" 2>/dev/null)"
 				[ -n "$failures" ] || failures="0"
 				failures=$((failures + 1))
 				printf '%s' "$failures" > "$fail_file"
-				[ "$old_status" = "offline" ] || log_event "$iface offline"
-				printf '%s' "offline" > "$STATE_DIR/$iface.status"
+				[ "$old_status" = "failed" ] || log_event "$iface health check failed"
+				printf '%s' "failed" > "$STATE_DIR/$iface.status"
 				run_recovery "$iface" "$failures"
 			fi
 		done
