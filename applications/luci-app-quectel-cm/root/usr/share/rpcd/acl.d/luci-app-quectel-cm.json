@@ -14,6 +14,7 @@
 				"/etc/init.d/qtcm": [ "exec" ],
 				"/etc/init.d/qtcmsim-failover": [ "exec" ],
 				"/usr/libexec/qtcmsim-failover": [ "exec" ],
+				"/usr/libexec/qtcm-troubleshooter": [ "exec" ],
 				"/usr/libexec/qtcm-manual-sim-switch": [ "exec" ]
 			}
 		}
