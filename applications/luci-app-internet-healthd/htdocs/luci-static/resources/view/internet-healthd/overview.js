@@ -88,7 +88,7 @@ return view.extend({
 
 		return E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, _('Internet Health')),
-			E('div', { 'class': 'cbi-map-descr' }, _('Interfaces are discovered from netifd unless a firewall zone or explicit list is configured.')),
+			E('div', { 'class': 'cbi-map-descr' }, _('Interfaces are logical netifd names; the active L3 device and address are shown below each name.')),
 			E('div', { 'class': 'cbi-section' }, [
 				E('table', { 'class': 'table' }, [
 					E('tr', { 'class': 'tr table-titles' }, [

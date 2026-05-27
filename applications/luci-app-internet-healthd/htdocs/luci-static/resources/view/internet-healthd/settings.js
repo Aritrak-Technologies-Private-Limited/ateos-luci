@@ -1,6 +1,7 @@
 'use strict';
 'require form';
 'require view';
+'require tools.widgets as widgets';
 
 return view.extend({
 	render: function() {
@@ -12,6 +13,15 @@ return view.extend({
 			opt = section.option(form.Value, 'failure_threshold', _('Failure threshold'));
 			opt.datatype = 'uinteger';
 			opt.default = '3';
+
+			opt = section.option(form.DynamicList, 'recovery_step', _('Recovery steps'));
+			opt.value('restart_interface', _('Restart interface'));
+			opt.value('restart_modem', _('Restart modem'));
+			opt.value('restart_mwan3', _('Restart MWAN3'));
+			opt.value('restart_network', _('Restart network'));
+			opt.value('custom_command', _('Custom command'));
+			opt.value('reboot_router', _('Reboot router'));
+			opt.default = [ 'restart_interface' ];
 
 			opt = section.option(form.Flag, 'repair_default_route', _('Repair default route'));
 			opt.default = '1';
@@ -27,11 +37,16 @@ return view.extend({
 			opt = section.option(form.Flag, 'restart_modem', _('Restart modem'));
 			opt.default = '0';
 
+			opt = section.option(form.Flag, 'restart_mwan3', _('Restart MWAN3'));
+			opt.default = '1';
+
 			opt = section.option(form.Flag, 'restart_network', _('Restart network'));
 			opt.default = '0';
 
 			opt = section.option(form.Flag, 'reboot_router', _('Reboot router'));
 			opt.default = '0';
+
+			opt = section.option(form.DynamicList, 'custom_command', _('Custom commands'));
 		}
 
 		m = new form.Map('internet-healthd', _('Internet Health - Settings'));
@@ -52,8 +67,8 @@ return view.extend({
 		o.placeholder = '3';
 
 		o = s.option(form.ListValue, 'discovery', _('Interface discovery'));
-		o.default = 'all';
-		o.value('all', _('All network interfaces'));
+		o.default = 'list';
+		o.value('all', _('All logical interfaces'));
 		o.value('firewall_zone', _('Firewall zone'));
 		o.value('list', _('Configured list'));
 
@@ -62,17 +77,27 @@ return view.extend({
 		o.placeholder = 'wan';
 		o.depends('discovery', 'firewall_zone');
 
-		o = s.option(form.DynamicList, 'interface', _('Interfaces'));
-		o.datatype = 'uciname';
-		o.placeholder = 'wan';
+		o = s.option(widgets.NetworkSelect, 'interface', _('Interfaces'));
+		o.multiple = true;
+		o.nocreate = true;
+		o.loopback = false;
+		o.default = [ 'wan', 'cellular' ];
 		o.depends('discovery', 'list');
 
-		o = s.option(form.DynamicList, 'exclude_interface', _('Exclude interfaces'));
-		o.datatype = 'uciname';
-		o.placeholder = 'loopback';
+		o = s.option(widgets.NetworkSelect, 'exclude_interface', _('Exclude interfaces'));
+		o.multiple = true;
+		o.nocreate = true;
+		o.loopback = true;
 
 		o = s.option(form.Flag, 'force_offline_test', _('Force test offline interfaces'));
 		o.default = '1';
+
+		o = s.option(form.Flag, 'mwan3_integration', _('Use MWAN3 as routing policy source'));
+		o.default = '1';
+
+		o = s.option(form.Flag, 'failback_to_primary', _('Fail back to MWAN3 primary'));
+		o.default = '1';
+		o.depends('mwan3_integration', '1');
 
 		o = s.option(form.DynamicList, 'ping_target', _('Ping targets'));
 		o.datatype = 'host';
@@ -90,7 +115,7 @@ return view.extend({
 		o.default = '/var/run/internet-healthd/status.json';
 
 		o = s.option(form.Value, 'event_log', _('Event log'));
-		o.default = '/var/log/internet-healthd.log';
+		o.default = '/tmp/internet-healthd.log';
 
 		s = m.section(form.NamedSection, 'defaults', 'recovery', _('Default recovery actions'));
 		recoveryOptions(s);
@@ -102,9 +127,9 @@ return view.extend({
 			return section_id !== 'defaults';
 		};
 
-		o = s.option(form.Value, 'interface', _('Interface'));
-		o.datatype = 'uciname';
-		o.placeholder = 'wan';
+		o = s.option(widgets.NetworkSelect, 'interface', _('Interface'));
+		o.nocreate = true;
+		o.loopback = false;
 
 		recoveryOptions(s);
 
