@@ -13,6 +13,14 @@ return view.extend({
 			opt.datatype = 'uinteger';
 			opt.default = '3';
 
+			opt = section.option(form.Flag, 'repair_default_route', _('Repair default route'));
+			opt.default = '1';
+
+			opt = section.option(form.Value, 'route_metric', _('Route metric'));
+			opt.datatype = 'uinteger';
+			opt.default = '20';
+			opt.depends('repair_default_route', '1');
+
 			opt = section.option(form.Flag, 'restart_interface', _('Restart interface'));
 			opt.default = '1';
 
