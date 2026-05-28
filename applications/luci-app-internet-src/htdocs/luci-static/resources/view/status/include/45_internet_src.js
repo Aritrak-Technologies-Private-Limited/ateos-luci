@@ -119,7 +119,7 @@ function runChecks(sources, devmap) {
 		var dev = devmap[src] ? devmap[src].device : src;
 
 		pingTasks.push(L.resolveDefault(
-			fs.exec('/bin/ping', [ '-I', dev, '-c', '1', '-W', '2', pingHost ]),
+			fs.exec('/bin/ping', [ '-I', dev, '-c', '3', '-W', '2', pingHost ]),
 			{ code: 1, stdout: '', stderr: '' }
 		));
 	}
@@ -132,9 +132,10 @@ function runChecks(sources, devmap) {
 			var res = results[i + 1] || {};
 			var output = [ res.stdout || '', res.stderr || '' ].join('\n');
 			var latency = /time[=<]([0-9.]+)\s*ms/.exec(output);
+			var received = /,\s*([0-9]+)\s+packets?\s+received/i.exec(output);
 
 			checks[sources[i]] = {
-				ok: res.code === 0,
+				ok: res.code === 0 || (received && parseInt(received[1]) > 0),
 				device: devmap[sources[i]] ? devmap[sources[i]].device : sources[i],
 				latency: latency ? latency[1] : ''
 			};
