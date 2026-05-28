@@ -1,0 +1,605 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+CONFIG="${CONFIG:-frr_bgpd}"
+FRR_DIR="${FRR_DIR:-/etc/frr}"
+FRR_CONF="${FRR_CONF:-${FRR_DIR}/frr.conf}"
+DAEMONS="${DAEMONS:-${FRR_DIR}/daemons}"
+
+enabled=0
+hostname="OpenWrt"
+log_level="informational"
+local_as=""
+vrf=""
+kernel_table=""
+router_id=""
+ipv4_unicast=1
+ipv6_unicast=0
+log_neighbor_changes=1
+ecmp=0
+maximum_paths=1
+maximum_paths_ibgp=1
+multipath_relax=0
+compare_routerid=0
+graceful_restart=0
+default_ipv4=1
+network_import_check=1
+redistribute_connected=0
+redistribute_static=0
+redistribute_kernel=0
+global_timers=""
+backup_on_apply=1
+
+tmp_conf=""
+ipv4_body=""
+ipv6_body=""
+neighbors_global=""
+policy_body=""
+any_bfd=0
+
+show_cmd() {
+	if command -v vtysh >/dev/null 2>&1; then
+		vtysh -c "$1" 2>&1
+	else
+		echo "vtysh is not installed"
+		return 1
+	fi
+}
+
+append_line() {
+	local var="$1"
+	local line="$2"
+	eval "$var=\"\${$var}\${line}
+\""
+}
+
+oneline() {
+	printf "%s" "$1" | tr "\r\n" "  "
+}
+
+emit_escaped() {
+	oneline "$1" | sed "s/[\\\\]/\\\\\\\\/g; s/\"/\\\\\"/g"
+}
+
+load_global() {
+	config_get_bool enabled "$1" enabled 0
+	config_get hostname "$1" hostname "OpenWrt"
+	config_get log_level "$1" log_level "informational"
+	config_get local_as "$1" local_as ""
+	config_get vrf "$1" vrf ""
+	config_get kernel_table "$1" kernel_table ""
+	config_get router_id "$1" router_id ""
+	config_get_bool ipv4_unicast "$1" ipv4_unicast 1
+	config_get_bool ipv6_unicast "$1" ipv6_unicast 0
+	config_get_bool log_neighbor_changes "$1" log_neighbor_changes 1
+	config_get_bool ecmp "$1" ecmp 0
+	config_get maximum_paths "$1" maximum_paths 1
+	config_get maximum_paths_ibgp "$1" maximum_paths_ibgp 1
+	config_get_bool multipath_relax "$1" multipath_relax 0
+	config_get_bool compare_routerid "$1" compare_routerid 0
+	config_get_bool graceful_restart "$1" graceful_restart 0
+	config_get_bool default_ipv4 "$1" default_ipv4 1
+	config_get_bool network_import_check "$1" network_import_check 1
+	config_get_bool redistribute_connected "$1" redistribute_connected 0
+	config_get_bool redistribute_static "$1" redistribute_static 0
+	config_get_bool redistribute_kernel "$1" redistribute_kernel 0
+	config_get global_timers "$1" timers ""
+	config_get_bool backup_on_apply "$1" backup_on_apply 1
+}
+
+emit_peer_group() {
+	local section="$1"
+	local pg_enabled name remote_as description update_source ebgp_multihop password timers local_as_opt
+
+	config_get_bool pg_enabled "$section" enabled 1
+	[ "$pg_enabled" = 1 ] || return 0
+
+	config_get name "$section" name ""
+	config_get remote_as "$section" remote_as ""
+	config_get description "$section" description ""
+	config_get update_source "$section" update_source ""
+	config_get ebgp_multihop "$section" ebgp_multihop ""
+	config_get password "$section" password ""
+	config_get timers "$section" timers ""
+	config_get local_as_opt "$section" local_as ""
+
+	[ -n "$name" ] || return 0
+
+	append_line neighbors_global " neighbor $name peer-group"
+	[ -n "$remote_as" ] && append_line neighbors_global " neighbor $name remote-as $remote_as"
+	[ -n "$description" ] && append_line neighbors_global " neighbor $name description $(emit_escaped "$description")"
+	[ -n "$update_source" ] && append_line neighbors_global " neighbor $name update-source $(oneline "$update_source")"
+	[ -n "$ebgp_multihop" ] && append_line neighbors_global " neighbor $name ebgp-multihop $(oneline "$ebgp_multihop")"
+	[ -n "$password" ] && append_line neighbors_global " neighbor $name password $(emit_escaped "$password")"
+	[ -n "$local_as_opt" ] && append_line neighbors_global " neighbor $name local-as $(oneline "$local_as_opt") no-prepend replace-as"
+	[ -n "$timers" ] && append_line neighbors_global " neighbor $name timers $(oneline "$timers")"
+}
+
+neighbor_enabled_for_afi() {
+	local afi="$1"
+	local want="$2"
+
+	case "$afi" in
+		both|"") return 0 ;;
+		"$want") return 0 ;;
+	esac
+
+	return 1
+}
+
+emit_neighbor() {
+	local section="$1"
+	local n_enabled name address remote_as peer_group description afi update_source ebgp_multihop password local_as_opt timers
+	local next_hop_self soft_reconfiguration default_originate route_reflector_client remove_private_as as_override
+	local send_community route_map_in route_map_out route_map_in_v4 route_map_out_v4 route_map_in_v6 route_map_out_v6
+	local maximum_prefix maximum_prefix_v4 maximum_prefix_v6 allowas_in bfd
+
+	config_get_bool n_enabled "$section" enabled 1
+	[ "$n_enabled" = 1 ] || return 0
+
+	config_get name "$section" name "$section"
+	config_get address "$section" address ""
+	config_get remote_as "$section" remote_as ""
+	config_get peer_group "$section" peer_group ""
+	config_get description "$section" description ""
+	config_get afi "$section" afi "both"
+	config_get update_source "$section" update_source ""
+	config_get ebgp_multihop "$section" ebgp_multihop ""
+	config_get password "$section" password ""
+	config_get local_as_opt "$section" local_as ""
+	config_get timers "$section" timers ""
+	config_get_bool next_hop_self "$section" next_hop_self 0
+	config_get_bool soft_reconfiguration "$section" soft_reconfiguration 0
+	config_get_bool default_originate "$section" default_originate 0
+	config_get_bool route_reflector_client "$section" route_reflector_client 0
+	config_get_bool remove_private_as "$section" remove_private_as 0
+	config_get_bool as_override "$section" as_override 0
+	config_get send_community "$section" send_community ""
+	config_get route_map_in "$section" route_map_in ""
+	config_get route_map_out "$section" route_map_out ""
+	config_get route_map_in_v4 "$section" route_map_in_v4 ""
+	config_get route_map_out_v4 "$section" route_map_out_v4 ""
+	config_get route_map_in_v6 "$section" route_map_in_v6 ""
+	config_get route_map_out_v6 "$section" route_map_out_v6 ""
+	config_get maximum_prefix "$section" maximum_prefix ""
+	config_get maximum_prefix_v4 "$section" maximum_prefix_v4 ""
+	config_get maximum_prefix_v6 "$section" maximum_prefix_v6 ""
+	config_get allowas_in "$section" allowas_in ""
+	config_get_bool bfd "$section" bfd 0
+
+	[ -n "$address" ] || return 0
+	[ -n "$remote_as" ] || [ -n "$peer_group" ] || return 0
+
+	if [ -n "$peer_group" ]; then
+		append_line neighbors_global " neighbor $address peer-group $peer_group"
+	else
+		append_line neighbors_global " neighbor $address remote-as $remote_as"
+	fi
+	[ -n "$description" ] && append_line neighbors_global " neighbor $address description $(emit_escaped "$description")"
+	[ -n "$update_source" ] && append_line neighbors_global " neighbor $address update-source $(oneline "$update_source")"
+	[ -n "$ebgp_multihop" ] && append_line neighbors_global " neighbor $address ebgp-multihop $(oneline "$ebgp_multihop")"
+	[ -n "$password" ] && append_line neighbors_global " neighbor $address password $(emit_escaped "$password")"
+	[ -n "$local_as_opt" ] && append_line neighbors_global " neighbor $address local-as $(oneline "$local_as_opt") no-prepend replace-as"
+	[ -n "$timers" ] && append_line neighbors_global " neighbor $address timers $(oneline "$timers")"
+	if [ "$bfd" = 1 ]; then
+		any_bfd=1
+		append_line neighbors_global " neighbor $address bfd"
+	fi
+
+	if neighbor_enabled_for_afi "$afi" "ipv4"; then
+		append_line ipv4_body "  neighbor $address activate"
+		[ "$next_hop_self" = 1 ] && append_line ipv4_body "  neighbor $address next-hop-self"
+		[ "$soft_reconfiguration" = 1 ] && append_line ipv4_body "  neighbor $address soft-reconfiguration inbound"
+		[ "$default_originate" = 1 ] && append_line ipv4_body "  neighbor $address default-originate"
+		[ "$route_reflector_client" = 1 ] && append_line ipv4_body "  neighbor $address route-reflector-client"
+		[ "$remove_private_as" = 1 ] && append_line ipv4_body "  neighbor $address remove-private-AS"
+		[ "$as_override" = 1 ] && append_line ipv4_body "  neighbor $address as-override"
+		[ -n "$send_community" ] && [ "$send_community" != "none" ] && append_line ipv4_body "  neighbor $address send-community $send_community"
+		[ -n "$route_map_in" ] && append_line ipv4_body "  neighbor $address route-map $route_map_in in"
+		[ -n "$route_map_out" ] && append_line ipv4_body "  neighbor $address route-map $route_map_out out"
+		[ -n "$route_map_in_v4" ] && append_line ipv4_body "  neighbor $address route-map $route_map_in_v4 in"
+		[ -n "$route_map_out_v4" ] && append_line ipv4_body "  neighbor $address route-map $route_map_out_v4 out"
+		[ -n "$maximum_prefix" ] && append_line ipv4_body "  neighbor $address maximum-prefix $(oneline "$maximum_prefix")"
+		[ -n "$maximum_prefix_v4" ] && append_line ipv4_body "  neighbor $address maximum-prefix $(oneline "$maximum_prefix_v4")"
+		[ -n "$allowas_in" ] && append_line ipv4_body "  neighbor $address allowas-in $(oneline "$allowas_in")"
+	fi
+
+	if neighbor_enabled_for_afi "$afi" "ipv6"; then
+		append_line ipv6_body "  neighbor $address activate"
+		[ "$next_hop_self" = 1 ] && append_line ipv6_body "  neighbor $address next-hop-self"
+		[ "$soft_reconfiguration" = 1 ] && append_line ipv6_body "  neighbor $address soft-reconfiguration inbound"
+		[ "$default_originate" = 1 ] && append_line ipv6_body "  neighbor $address default-originate"
+		[ "$route_reflector_client" = 1 ] && append_line ipv6_body "  neighbor $address route-reflector-client"
+		[ "$remove_private_as" = 1 ] && append_line ipv6_body "  neighbor $address remove-private-AS"
+		[ "$as_override" = 1 ] && append_line ipv6_body "  neighbor $address as-override"
+		[ -n "$send_community" ] && [ "$send_community" != "none" ] && append_line ipv6_body "  neighbor $address send-community $send_community"
+		[ -n "$route_map_in" ] && append_line ipv6_body "  neighbor $address route-map $route_map_in in"
+		[ -n "$route_map_out" ] && append_line ipv6_body "  neighbor $address route-map $route_map_out out"
+		[ -n "$route_map_in_v6" ] && append_line ipv6_body "  neighbor $address route-map $route_map_in_v6 in"
+		[ -n "$route_map_out_v6" ] && append_line ipv6_body "  neighbor $address route-map $route_map_out_v6 out"
+		[ -n "$maximum_prefix" ] && append_line ipv6_body "  neighbor $address maximum-prefix $(oneline "$maximum_prefix")"
+		[ -n "$maximum_prefix_v6" ] && append_line ipv6_body "  neighbor $address maximum-prefix $(oneline "$maximum_prefix_v6")"
+		[ -n "$allowas_in" ] && append_line ipv6_body "  neighbor $address allowas-in $(oneline "$allowas_in")"
+	fi
+}
+
+emit_as_path_list() {
+	local section="$1"
+	local enabled name action seq regex
+
+	config_get_bool enabled "$section" enabled 1
+	[ "$enabled" = 1 ] || return 0
+
+	config_get name "$section" name ""
+	config_get action "$section" action "permit"
+	config_get seq "$section" seq ""
+	config_get regex "$section" regex ""
+
+	[ -n "$name" ] || return 0
+	[ -n "$regex" ] || return 0
+
+	append_line policy_body "bgp as-path access-list $name${seq:+ seq $seq} $action $(oneline "$regex")"
+}
+
+emit_community_list() {
+	local section="$1"
+	local enabled name type action seq community large
+
+	config_get_bool enabled "$section" enabled 1
+	[ "$enabled" = 1 ] || return 0
+
+	config_get name "$section" name ""
+	config_get type "$section" type "standard"
+	config_get action "$section" action "permit"
+	config_get seq "$section" seq ""
+	config_get community "$section" community ""
+	config_get_bool large "$section" large 0
+
+	[ -n "$name" ] || return 0
+	[ -n "$community" ] || return 0
+
+	if [ "$large" = 1 ]; then
+		append_line policy_body "bgp large-community-list $type $name${seq:+ seq $seq} $action $(oneline "$community")"
+	else
+		append_line policy_body "bgp community-list $type $name${seq:+ seq $seq} $action $(oneline "$community")"
+	fi
+}
+
+emit_network() {
+	local section="$1"
+	local n_enabled prefix afi route_map
+
+	config_get_bool n_enabled "$section" enabled 1
+	[ "$n_enabled" = 1 ] || return 0
+
+	config_get prefix "$section" prefix ""
+	config_get afi "$section" afi "ipv4"
+	config_get route_map "$section" route_map ""
+
+	[ -n "$prefix" ] || return 0
+
+	if [ "$afi" = "ipv6" ]; then
+		append_line ipv6_body "  network $prefix${route_map:+ route-map $route_map}"
+	else
+		append_line ipv4_body "  network $prefix${route_map:+ route-map $route_map}"
+	fi
+}
+
+emit_aggregate() {
+	local section="$1"
+	local a_enabled prefix afi summary_only as_set
+	local line
+
+	config_get_bool a_enabled "$section" enabled 1
+	[ "$a_enabled" = 1 ] || return 0
+
+	config_get prefix "$section" prefix ""
+	config_get afi "$section" afi "ipv4"
+	config_get_bool summary_only "$section" summary_only 0
+	config_get_bool as_set "$section" as_set 0
+
+	[ -n "$prefix" ] || return 0
+	line="  aggregate-address $prefix"
+	[ "$summary_only" = 1 ] && line="$line summary-only"
+	[ "$as_set" = 1 ] && line="$line as-set"
+
+	if [ "$afi" = "ipv6" ]; then
+		append_line ipv6_body "$line"
+	else
+		append_line ipv4_body "$line"
+	fi
+}
+
+emit_prefix_list() {
+	local section="$1"
+	local p_enabled name afi action seq prefix le ge
+	local cmd="ip"
+
+	config_get_bool p_enabled "$section" enabled 1
+	[ "$p_enabled" = 1 ] || return 0
+
+	config_get name "$section" name ""
+	config_get afi "$section" afi "ipv4"
+	config_get action "$section" action "permit"
+	config_get seq "$section" seq ""
+	config_get prefix "$section" prefix ""
+	config_get le "$section" le ""
+	config_get ge "$section" ge ""
+
+	[ -n "$name" ] || return 0
+	[ -n "$prefix" ] || return 0
+	[ "$afi" = "ipv6" ] && cmd="ipv6"
+
+	printf "%s prefix-list %s" "$cmd" "$name" >> "$tmp_conf"
+	[ -n "$seq" ] && printf " seq %s" "$seq" >> "$tmp_conf"
+	printf " %s %s" "$action" "$prefix" >> "$tmp_conf"
+	[ -n "$ge" ] && printf " ge %s" "$ge" >> "$tmp_conf"
+	[ -n "$le" ] && printf " le %s" "$le" >> "$tmp_conf"
+	printf "\n" >> "$tmp_conf"
+}
+
+emit_route_map() {
+	local section="$1"
+	local r_enabled name action seq afi match_prefix_list match_as_path match_community match_large_community
+	local set_local_pref set_metric set_weight set_community set_large_community set_extcommunity_rt set_as_path_prepend
+	local set_origin set_next_hop
+
+	config_get_bool r_enabled "$section" enabled 1
+	[ "$r_enabled" = 1 ] || return 0
+
+	config_get name "$section" name ""
+	config_get action "$section" action "permit"
+	config_get seq "$section" seq "10"
+	config_get afi "$section" afi "ipv4"
+	config_get match_prefix_list "$section" match_prefix_list ""
+	config_get match_as_path "$section" match_as_path ""
+	config_get match_community "$section" match_community ""
+	config_get match_large_community "$section" match_large_community ""
+	config_get set_local_pref "$section" set_local_pref ""
+	config_get set_metric "$section" set_metric ""
+	config_get set_weight "$section" set_weight ""
+	config_get set_community "$section" set_community ""
+	config_get set_large_community "$section" set_large_community ""
+	config_get set_extcommunity_rt "$section" set_extcommunity_rt ""
+	config_get set_as_path_prepend "$section" set_as_path_prepend ""
+	config_get set_origin "$section" set_origin ""
+	config_get set_next_hop "$section" set_next_hop ""
+
+	[ -n "$name" ] || return 0
+
+	{
+		printf "route-map %s %s %s\n" "$name" "$action" "$seq"
+		if [ -n "$match_prefix_list" ]; then
+			if [ "$afi" = "ipv6" ]; then
+				printf " match ipv6 address prefix-list %s\n" "$match_prefix_list"
+			else
+				printf " match ip address prefix-list %s\n" "$match_prefix_list"
+			fi
+		fi
+		[ -n "$match_as_path" ] && printf " match as-path %s\n" "$match_as_path"
+		[ -n "$match_community" ] && printf " match community %s\n" "$match_community"
+		[ -n "$match_large_community" ] && printf " match large-community %s\n" "$match_large_community"
+		[ -n "$set_local_pref" ] && printf " set local-preference %s\n" "$set_local_pref"
+		[ -n "$set_metric" ] && printf " set metric %s\n" "$set_metric"
+		[ -n "$set_weight" ] && printf " set weight %s\n" "$set_weight"
+		[ -n "$set_community" ] && printf " set community %s\n" "$(oneline "$set_community")"
+		[ -n "$set_large_community" ] && printf " set large-community %s\n" "$(oneline "$set_large_community")"
+		[ -n "$set_extcommunity_rt" ] && printf " set extcommunity rt %s\n" "$(oneline "$set_extcommunity_rt")"
+		[ -n "$set_as_path_prepend" ] && printf " set as-path prepend %s\n" "$(oneline "$set_as_path_prepend")"
+		[ -n "$set_origin" ] && printf " set origin %s\n" "$set_origin"
+		[ -n "$set_next_hop" ] && printf " set ip next-hop %s\n" "$(oneline "$set_next_hop")"
+		printf "exit\n"
+	} >> "$tmp_conf"
+}
+
+set_daemon() {
+	local daemon="$1"
+	local value="$2"
+
+	mkdir -p "$FRR_DIR"
+	touch "$DAEMONS"
+
+	if grep -q "^${daemon}=" "$DAEMONS"; then
+		sed -i "s/^${daemon}=.*/${daemon}=${value}/" "$DAEMONS"
+	else
+		printf "%s=%s\n" "$daemon" "$value" >> "$DAEMONS"
+	fi
+}
+
+enable_daemon() {
+	set_daemon "$1" yes
+}
+
+generate_config() {
+	mkdir -p "$FRR_DIR"
+	tmp_conf="$(mktemp "${FRR_CONF}.XXXXXX")" || exit 1
+
+	config_load "$CONFIG"
+	config_foreach load_global bgpd
+
+	if [ "$enabled" != 1 ]; then
+		printf "! FRR BGP LuCI config is disabled; no FRR BGP config generated\n" > "$tmp_conf"
+		return 0
+	fi
+
+	if [ -z "$local_as" ]; then
+		printf "Missing local AS\n" >&2
+		rm -f "$tmp_conf"
+		return 1
+	fi
+
+	config_foreach emit_peer_group peer_group
+	config_foreach emit_neighbor neighbor
+	config_foreach emit_network network
+	config_foreach emit_aggregate aggregate
+	config_foreach emit_as_path_list as_path_list
+	config_foreach emit_community_list community_list
+
+	{
+		printf "frr defaults traditional\n"
+		printf "hostname %s\n" "$(oneline "$hostname")"
+		printf "log syslog %s\n" "$log_level"
+		printf "service integrated-vtysh-config\n"
+		printf "!\n"
+		[ "$ipv4_unicast" = 1 ] && printf "ip forwarding\n"
+		[ "$ipv6_unicast" = 1 ] && printf "ipv6 forwarding\n"
+		printf "!\n"
+		printf "router bgp %s%s\n" "$local_as" "${vrf:+ vrf $(oneline "$vrf")}"
+		[ -n "$kernel_table" ] && printf " table %s\n" "$(oneline "$kernel_table")"
+		[ -n "$router_id" ] && printf " bgp router-id %s\n" "$router_id"
+		[ "$default_ipv4" = 0 ] && printf " no bgp default ipv4-unicast\n"
+		[ "$network_import_check" = 0 ] && printf " no bgp network import-check\n"
+		[ "$log_neighbor_changes" = 1 ] && printf " bgp log-neighbor-changes\n"
+		[ "$multipath_relax" = 1 ] && printf " bgp bestpath as-path multipath-relax\n"
+		[ "$compare_routerid" = 1 ] && printf " bgp bestpath compare-routerid\n"
+		[ "$graceful_restart" = 1 ] && printf " bgp graceful-restart\n"
+		[ -n "$global_timers" ] && printf " timers bgp %s\n" "$(oneline "$global_timers")"
+		if [ "$ecmp" = 1 ]; then
+			printf " maximum-paths %s\n" "${maximum_paths:-1}"
+			printf " maximum-paths ibgp %s\n" "${maximum_paths_ibgp:-1}"
+		fi
+		printf "%s" "$neighbors_global"
+		if [ "$ipv4_unicast" = 1 ]; then
+			printf " !\n"
+			printf " address-family ipv4 unicast\n"
+			[ "$redistribute_connected" = 1 ] && printf "  redistribute connected\n"
+			[ "$redistribute_static" = 1 ] && printf "  redistribute static\n"
+			[ "$redistribute_kernel" = 1 ] && printf "  redistribute kernel\n"
+			printf "%s" "$ipv4_body"
+			printf " exit-address-family\n"
+		fi
+		if [ "$ipv6_unicast" = 1 ]; then
+			printf " !\n"
+			printf " address-family ipv6 unicast\n"
+			[ "$redistribute_connected" = 1 ] && printf "  redistribute connected\n"
+			[ "$redistribute_static" = 1 ] && printf "  redistribute static\n"
+			[ "$redistribute_kernel" = 1 ] && printf "  redistribute kernel\n"
+			printf "%s" "$ipv6_body"
+			printf " exit-address-family\n"
+		fi
+		printf "exit\n"
+		printf "!\n"
+	} >> "$tmp_conf"
+
+	config_foreach emit_prefix_list prefix_list
+	printf "%s" "$policy_body" >> "$tmp_conf"
+	config_foreach emit_route_map route_map
+
+	return 0
+}
+
+preview_config() {
+	generate_config || return 1
+	cat "$tmp_conf"
+	rm -f "$tmp_conf"
+}
+
+write_config() {
+	generate_config || return 1
+	if [ "$enabled" != 1 ]; then
+		set_daemon bgpd no
+		printf "FRR BGP LuCI config is disabled; set bgpd=no in %s and did not write %s\n" "$DAEMONS" "$FRR_CONF"
+		rm -f "$tmp_conf"
+		return 0
+	fi
+
+	if [ "$backup_on_apply" = 1 ] && [ -f "$FRR_CONF" ]; then
+		cp "$FRR_CONF" "${FRR_CONF}.luci-bak"
+	fi
+
+	mv "$tmp_conf" "$FRR_CONF"
+	chmod 0644 "$FRR_CONF"
+	enable_daemon zebra
+	enable_daemon bgpd
+	[ "$any_bfd" = 1 ] && enable_daemon bfdd
+	enable_daemon vtysh_enable
+	printf "Wrote %s and enabled zebra/bgpd%s/vtysh_enable in %s\n" "$FRR_CONF" "$([ "$any_bfd" = 1 ] && printf "/bfdd")" "$DAEMONS"
+}
+
+status() {
+	echo "Packages / binaries:"
+	command -v bgpd >/dev/null 2>&1 && echo "  bgpd: installed" || echo "  bgpd: missing"
+	command -v zebra >/dev/null 2>&1 && echo "  zebra: installed" || echo "  zebra: missing"
+	command -v vtysh >/dev/null 2>&1 && echo "  vtysh: installed" || echo "  vtysh: missing"
+	echo
+	echo "Daemons:"
+	[ -f "$DAEMONS" ] && grep -E "^(zebra|bgpd|bfdd|vtysh_enable)=" "$DAEMONS" | sed "s/^/  /" || echo "  ${DAEMONS}: missing"
+	echo
+	echo "Service:"
+	if [ -x /etc/init.d/frr ]; then
+		/etc/init.d/frr status 2>&1 | sed "s/^/  /"
+	else
+		echo "  /etc/init.d/frr: missing"
+	fi
+	echo
+	echo "BGP summary:"
+	show_cmd "show bgp summary" | sed "s/^/  /"
+	echo
+	echo "BGP routes:"
+	show_cmd "show bgp ipv4 unicast" | sed "s/^/  /"
+	echo
+	echo "ECMP kernel routes:"
+	ip route show proto bgp 2>&1 | sed "s/^/  /"
+	echo
+	echo "Policy rule interaction:"
+	ip rule show 2>&1 | sed "s/^/  /"
+	echo
+	echo "mwan3 / pbr presence:"
+	command -v mwan3 >/dev/null 2>&1 && echo "  mwan3: installed" || echo "  mwan3: missing"
+	command -v pbr >/dev/null 2>&1 && echo "  pbr: installed" || echo "  pbr: missing"
+	return 0
+}
+
+clear_bgp() {
+	local neighbor="$1"
+	local mode="$2"
+	local afi="$3"
+	local cmd="clear bgp"
+
+	[ -n "$afi" ] && [ "$afi" != "all" ] && cmd="$cmd $afi"
+	[ -n "$neighbor" ] && [ "$neighbor" != "all" ] && cmd="$cmd $neighbor" || cmd="$cmd *"
+
+	case "$mode" in
+		soft-in) cmd="$cmd soft in" ;;
+		soft-out) cmd="$cmd soft out" ;;
+		soft) cmd="$cmd soft" ;;
+	esac
+
+	show_cmd "$cmd"
+}
+
+neighbor_detail() {
+	local neighbor="$1"
+	if [ -n "$neighbor" ] && [ "$neighbor" != "all" ]; then
+		show_cmd "show bgp neighbors $neighbor"
+	else
+		show_cmd "show bgp neighbors"
+	fi
+	return 0
+}
+
+case "$1" in
+	apply)
+		write_config || exit 1
+		if [ -x /etc/init.d/frr ]; then
+			/etc/init.d/frr restart
+		fi
+		;;
+	preview)
+		preview_config
+		;;
+	status)
+		status
+		;;
+	clear|soft|soft-in|soft-out)
+		clear_bgp "$2" "$1" "$3"
+		;;
+	neighbor)
+		neighbor_detail "$2"
+		;;
+	*)
+		echo "Usage: $0 {apply|preview|status|clear|soft|soft-in|soft-out|neighbor} [neighbor|all] [afi]" >&2
+		exit 1
+		;;
+esac
