@@ -1,0 +1,15 @@
+{
+	"admin/network/frr-bgpd": {
+		"title": "FRR BGP",
+		"order": 610,
+		"action": {
+			"type": "view",
+			"path": "frr-bgpd/overview"
+		},
+		"depends": {
+			"acl": [
+				"luci-app-frr-bgpd"
+			]
+		}
+	}
+}

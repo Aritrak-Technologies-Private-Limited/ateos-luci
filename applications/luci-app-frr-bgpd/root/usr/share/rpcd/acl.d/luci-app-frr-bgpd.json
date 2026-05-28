@@ -1,0 +1,62 @@
+{
+	"luci-app-frr-bgpd": {
+		"description": "Grant access for luci-app-frr-bgpd",
+		"read": {
+			"cgi-io": [
+				"exec"
+			],
+			"file": {
+				"/usr/libexec/luci-frr-bgpd status": [
+					"exec"
+				],
+				"/usr/libexec/luci-frr-bgpd preview": [
+					"exec"
+				],
+				"/usr/libexec/luci-frr-bgpd neighbor *": [
+					"exec"
+				]
+			},
+			"ubus": {
+				"file": [
+					"exec"
+				]
+			},
+			"uci": [
+				"frr_bgpd"
+			]
+		},
+		"write": {
+			"cgi-io": [
+				"exec"
+			],
+			"file": {
+				"/usr/libexec/luci-frr-bgpd apply": [
+					"exec"
+				],
+				"/usr/libexec/luci-frr-bgpd clear *": [
+					"exec"
+				],
+				"/usr/libexec/luci-frr-bgpd soft *": [
+					"exec"
+				],
+				"/usr/libexec/luci-frr-bgpd soft-in *": [
+					"exec"
+				],
+				"/usr/libexec/luci-frr-bgpd soft-out *": [
+					"exec"
+				],
+				"/etc/init.d/frr restart": [
+					"exec"
+				]
+			},
+			"ubus": {
+				"file": [
+					"exec"
+				]
+			},
+			"uci": [
+				"frr_bgpd"
+			]
+		}
+	}
+}
