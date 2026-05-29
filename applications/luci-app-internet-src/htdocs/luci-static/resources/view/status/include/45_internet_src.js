@@ -41,15 +41,119 @@ function uniq(values) {
 
 function routeIface(stdout) {
 	var lines = (stdout || '').split(/\n/);
+	var best = null;
 
 	for (var i = 0; i < lines.length; i++) {
 		var cols = lines[i].trim().split(/\s+/);
+		var metric;
 
-		if (cols.length >= 8 && (cols[0] == 'default' || cols[0] == '0.0.0.0'))
-			return cols[7];
+		if (cols.length >= 8 && (cols[0] == 'default' || cols[0] == '0.0.0.0')) {
+			metric = parseInt(cols[4]) || 0;
+
+			if (!best || metric < best.metric)
+				best = { iface: cols[7], metric: metric };
+		}
 	}
 
-	return '';
+	return best ? {
+		iface: best.iface,
+		label: best.iface,
+		source: 'route',
+		detail: _('metric %d').format(best.metric),
+		sources: [ best.iface ]
+	} : null;
+}
+
+function parseMwan3Status(stdout) {
+	var lines = (stdout || '').split(/\n/);
+	var section = '';
+	var policy = '';
+	var currentPolicy = '';
+	var interfaces = {};
+	var policies = {};
+
+	for (var i = 0; i < lines.length; i++) {
+		var line = lines[i];
+		var trimmed = line.trim();
+		var m;
+
+		if (!trimmed)
+			continue;
+
+		if (trimmed == 'Interface status:') {
+			section = 'interfaces';
+			continue;
+		}
+
+		if (trimmed == 'Current ipv4 policies:') {
+			section = 'policies4';
+			currentPolicy = '';
+			continue;
+		}
+
+		if (trimmed == 'Active ipv4 user rules:') {
+			section = 'rules4';
+			currentPolicy = '';
+			continue;
+		}
+
+		if (/^(Current ipv6|Directly connected|Active ipv6)/.test(trimmed)) {
+			section = '';
+			currentPolicy = '';
+			continue;
+		}
+
+		if (section == 'interfaces') {
+			m = /^interface\s+(\S+)\s+is\s+(\S+)/.exec(trimmed);
+			if (m)
+				interfaces[m[1]] = m[2];
+
+			continue;
+		}
+
+		if (section == 'policies4') {
+			m = /^([^:\s]+):$/.exec(trimmed);
+			if (m) {
+				currentPolicy = m[1];
+				policies[currentPolicy] = [];
+				continue;
+			}
+
+			m = /^(\S+)\s+\(([0-9]+)%\)/.exec(trimmed);
+			if (m && currentPolicy)
+				policies[currentPolicy].push({ iface: m[1], percent: parseInt(m[2]) || 0 });
+
+			continue;
+		}
+
+		if (section == 'rules4') {
+			m = /^\d+\s+\d+\s+\S+\s+(\S+)\s+/.exec(trimmed);
+			if (m && trimmed.indexOf('0.0.0.0/0') != -1) {
+				policy = m[1];
+				break;
+			}
+		}
+	}
+
+	if (!policy || !policies[policy] || !policies[policy].length)
+		return null;
+
+	var members = policies[policy].filter(function(member) {
+		return interfaces[member.iface] == 'online' || interfaces[member.iface] == 'notracking';
+	});
+
+	if (!members.length)
+		members = policies[policy];
+
+	return {
+		iface: members.map(function(member) { return member.iface; }).join(', '),
+		label: members.map(function(member) {
+			return '%s (%d%%)'.format(member.iface, member.percent);
+		}).join(', '),
+		source: 'mwan3',
+		detail: _('mwan3 policy %s').format(policy),
+		sources: members.map(function(member) { return member.iface; })
+	};
 }
 
 function simLabel(no) {
@@ -110,8 +214,28 @@ function qtcmInterface() {
 	return uci.get('qtcm', 'main', 'network_interface') || '';
 }
 
+function routedText(data, devmap) {
+	var sources = Array.isArray(data.routedSources) ? data.routedSources : [];
+	var label = data.routedLabel || data.routed || '';
+
+	if (data.routedSource == 'mwan3') {
+		label = sources.length
+			? sources.map(function(src) {
+				var re = new RegExp('(^|,\\s*)' + src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\(([0-9]+)%\\)');
+				var m = re.exec(data.routedLabel || '');
+				return m ? '%s (%s%%)'.format(src, m[2]) : src;
+			}).join(', ')
+			: label;
+
+		return '%s - %s'.format(label || '-', data.routedDetail || _('mwan3'));
+	}
+
+	return interfaceNameForDevice(label, devmap) || '-';
+}
+
 function runChecks(sources, devmap) {
 	var routeTask = L.resolveDefault(fs.exec('/sbin/route', [ '-n' ]), { stdout: '' });
+	var mwan3Task = L.resolveDefault(fs.exec('/usr/sbin/mwan3', [ 'status' ]), { code: 1, stdout: '', stderr: '' });
 	var pingTasks = [];
 
 	for (var i = 0; i < sources.length; i++) {
@@ -124,12 +248,14 @@ function runChecks(sources, devmap) {
 		));
 	}
 
-	return Promise.all([ routeTask ].concat(pingTasks)).then(function(results) {
+	return Promise.all([ routeTask, mwan3Task ].concat(pingTasks)).then(function(results) {
 		var route = results[0];
+		var mwan3 = results[1];
+		var routed = parseMwan3Status(mwan3.stdout || '') || routeIface(route.stdout);
 		var checks = {};
 
 		for (var i = 0; i < sources.length; i++) {
-			var res = results[i + 1] || {};
+			var res = results[i + 2] || {};
 			var output = [ res.stdout || '', res.stderr || '' ].join('\n');
 			var latency = /time[=<]([0-9.]+)\s*ms/.exec(output);
 			var received = /,\s*([0-9]+)\s+packets?\s+received/i.exec(output);
@@ -143,7 +269,11 @@ function runChecks(sources, devmap) {
 
 		internetCache = {
 			checked: Date.now(),
-			routed: routeIface(route.stdout),
+			routed: routed ? routed.iface : '',
+			routedLabel: routed ? routed.label : '',
+			routedSource: routed ? routed.source : '',
+			routedDetail: routed ? routed.detail : '',
+			routedSources: routed ? routed.sources : [],
 			checks: checks
 		};
 
@@ -266,6 +396,9 @@ function isCellularRelevant(sources, devmap, data) {
 	var routed = data.routed || '';
 	var routedName = interfaceNameForDevice(routed, devmap);
 	var qtcmIf = qtcmInterface();
+
+	if (Array.isArray(data.routedSources) && data.routedSources.indexOf('cellular') != -1)
+		return true;
 
 	if (routedName == 'cellular' || routed == 'cellular')
 		return true;
@@ -430,7 +563,7 @@ function renderAddControls(ctx, sources, devmap) {
 function renderStatus(ctx, nets, data, signal) {
 	var sources = configuredSources();
 	var devmap = networkDeviceMap(nets);
-	var routed = interfaceNameForDevice(data.routed, devmap) || '-';
+	var routed = routedText(data, devmap);
 	var checked = data.checked ? new Date(data.checked).toLocaleString() : '-';
 	var showSignal = signal && isCellularRelevant(sources, devmap, data);
 	var summary = [
