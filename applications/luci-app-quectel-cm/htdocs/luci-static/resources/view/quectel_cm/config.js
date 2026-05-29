@@ -138,7 +138,7 @@ function addSimSection(map, sectionId, label, simNo) {
 			: ''));
 	var o;
 
-	o = section.option(form.DummyValue, '_active', _('Active SIM'));
+	o = section.option(form.DummyValue, '_active', _('Active SIM'), _('Shows whether this SIM is currently selected.'));
 	o.rawhtml = true;
 	o.cfgvalue = function() {
 		var active = activeSimValue() == String(simNo);
@@ -149,7 +149,7 @@ function addSimSection(map, sectionId, label, simNo) {
 	};
 
 	if (!failoverControlsActive) {
-		o = section.option(form.Button, '_set_active', _('Set Active'));
+		o = section.option(form.Button, '_set_active', _('Set Active'), _('Manually switch to this SIM when failover is disabled.'));
 		o.inputtitle = _('Set Active');
 		o.inputstyle = 'apply';
 		o.onclick = function() {
@@ -164,50 +164,50 @@ function addSimSection(map, sectionId, label, simNo) {
 		};
 	}
 
-	o = section.option(form.Flag, 'enabled', _('Enable'));
+	o = section.option(form.Flag, 'enabled', _('Enable'), _('Allow this SIM to be used by manual switching and failover.'));
 	o.rmempty = false;
 
-	o = section.option(form.Value, 'description', _('Description'));
+	o = section.option(form.Value, 'description', _('Description'), _('Optional label for identifying this SIM.'));
 	o.optional = true;
 
-	o = section.option(form.Value, 'apn', _('APN'));
+	o = section.option(form.Value, 'apn', _('APN'), _('Carrier APN used for this SIM.'));
 	o.placeholder = 'internet';
 	o.optional = true;
 
-	o = section.option(form.ListValue, 'network_mode', _('Network Mode'));
+	o = section.option(form.ListValue, 'network_mode', _('Network Mode'), _('Preferred radio mode for this SIM.'));
 	addNetworkModeValues(o);
 
-	o = section.option(form.ListValue, 'ip_type', _('Network Type'));
+	o = section.option(form.ListValue, 'ip_type', _('Network Type'), _('IP family requested for this SIM data session.'));
 	addIpTypeValues(o);
 
-	o = section.option(form.Value, 'pin', _('PIN'));
+	o = section.option(form.Value, 'pin', _('PIN'), _('SIM PIN if the SIM requires unlocking.'));
 	o.password = true;
 	o.optional = true;
 
-	o = section.option(form.Value, 'username', _('APN Username'));
+	o = section.option(form.Value, 'username', _('APN Username'), _('Carrier APN username, if required.'));
 	o.optional = true;
 
-	o = section.option(form.Value, 'password', _('APN Password'));
+	o = section.option(form.Value, 'password', _('APN Password'), _('Carrier APN password, if required.'));
 	o.password = true;
 	o.optional = true;
 
-	o = section.option(form.Value, 'metric', _('Metric'));
+	o = section.option(form.Value, 'metric', _('Metric'), _('Route metric used when this SIM connection is active.'));
 	o.datatype = 'uinteger';
 	o.optional = true;
 
-	o = section.option(form.Value, 'mtu', _('MTU'));
+	o = section.option(form.Value, 'mtu', _('MTU'), _('Interface MTU for the cellular data link.'));
 	o.datatype = 'range(576,9200)';
 	o.optional = true;
 
-	o = section.option(form.Value, 'lock_pin', _('Lock PIN'));
+	o = section.option(form.Value, 'lock_pin', _('Lock PIN'), _('PIN used when enabling SIM PIN lock.'));
 	o.password = true;
 	o.optional = true;
 
-	o = section.option(form.ListValue, 'firewall_zone', _('Firewall Zone'));
+	o = section.option(form.ListValue, 'firewall_zone', _('Firewall Zone'), _('Firewall zone assigned to this SIM data interface.'));
 	addFirewallZoneValues(o);
 	o.optional = true;
 
-	o = section.option(form.Flag, 'use_dns', _('Use DNS'));
+	o = section.option(form.Flag, 'use_dns', _('Use DNS'), _('Use DNS servers learned from this SIM connection.'));
 	o.rmempty = false;
 	o.default = '1';
 }
@@ -303,46 +303,46 @@ return view.extend({
 		section.tab('basic', _('Basic'));
 		section.tab('advanced', _('Advanced'));
 
-		o = section.taboption('basic', form.Flag, 'enabled', _('Enable service'));
+		o = section.taboption('basic', form.Flag, 'enabled', _('Enable service'), _('Start QTCM modem connection management.'));
 		o.rmempty = false;
 
-		o = section.taboption('basic', form.Flag, 'log', _('Enable logging'));
+		o = section.taboption('basic', form.Flag, 'log', _('Enable logging'), _('Write QTCM service logs to the configured file.'));
 		o.rmempty = false;
 
-		o = section.taboption('basic', form.Value, 'log_file', _('Log file'));
+		o = section.taboption('basic', form.Value, 'log_file', _('Log file'), _('Path used for QTCM service logging.'));
 		o.placeholder = '/tmp/q-cm.log';
 		o.depends('log', '1');
 
-		o = section.taboption('basic', form.ListValue, 'cell_internet_mode', _('Internet mode'));
+		o = section.taboption('basic', form.ListValue, 'cell_internet_mode', _('Internet mode'), _('Choose routed NAT mode or IP passthrough mode.'));
 		o.value('nat', _('Routed / NAT'));
 		o.value('ippt', _('IP passthrough / bridge'));
 		o.default = 'nat';
 
-		o = section.taboption('basic', form.ListValue, 'pdp', _('PDP context'));
+		o = section.taboption('basic', form.ListValue, 'pdp', _('PDP context'), _('Modem profile number used for the data session.'));
 		o.value('1', _('Profile 1'));
 		o.value('2', _('Profile 2'));
 		o.value('3', _('Profile 3'));
 		o.value('4', _('Profile 4'));
 		o.default = '1';
 
-		o = section.taboption('basic', form.ListValue, 'ip_type', _('IP type'));
+		o = section.taboption('basic', form.ListValue, 'ip_type', _('IP type'), _('IP family requested for the main data connection.'));
 		addIpTypeValues(o);
 
-		o = section.taboption('basic', form.Flag, 'auto_apn', _('Automatic APN'));
+		o = section.taboption('basic', form.Flag, 'auto_apn', _('Automatic APN'), _('Let the modem or carrier profile choose APN settings.'));
 		o.rmempty = false;
 		o.default = '1';
 
-		o = section.taboption('basic', form.Value, 'apn', _('APN'));
+		o = section.taboption('basic', form.Value, 'apn', _('APN'), _('Manual APN used when Automatic APN is disabled.'));
 		o.depends('auto_apn', '0');
 
-		o = section.taboption('basic', form.Value, 'username', _('Username'));
+		o = section.taboption('basic', form.Value, 'username', _('Username'), _('APN username, if your carrier requires one.'));
 		o.depends('auto_apn', '0');
 
-		o = section.taboption('basic', form.Value, 'password', _('Password'));
+		o = section.taboption('basic', form.Value, 'password', _('Password'), _('APN password, if your carrier requires one.'));
 		o.password = true;
 		o.depends('auto_apn', '0');
 
-		o = section.taboption('basic', form.ListValue, 'auth', _('Authentication'));
+		o = section.taboption('basic', form.ListValue, 'auth', _('Authentication'), _('Authentication method required by the carrier APN.'));
 		o.value('none', _('None'));
 		o.value('pap', _('PAP'));
 		o.value('chap', _('CHAP'));
@@ -350,19 +350,19 @@ return view.extend({
 		o.default = 'none';
 		o.depends('auto_apn', '0');
 
-		o = section.taboption('advanced', form.Value, 'network_interface', _('Network interface'));
+		o = section.taboption('advanced', form.Value, 'network_interface', _('Network interface'), _('Linux interface name used by QTCM, for example usb0 or wwan0.'));
 		o.placeholder = 'wwan0';
 		o.optional = true;
 
-		o = section.taboption('advanced', form.Value, 'at_port', _('AT port'));
+		o = section.taboption('advanced', form.Value, 'at_port', _('AT port'), _('Modem AT command port used for status and control.'));
 		o.placeholder = '/dev/ttyUSB2';
 		o.optional = true;
 
-		o = section.taboption('advanced', form.Value, 'pincode', _('SIM PIN'));
+		o = section.taboption('advanced', form.Value, 'pincode', _('SIM PIN'), _('PIN used to unlock the active SIM if required.'));
 		o.password = true;
 		o.optional = true;
 
-		o = section.taboption('advanced', form.ListValue, 'proxy_mode', _('Proxy mode'));
+		o = section.taboption('advanced', form.ListValue, 'proxy_mode', _('Proxy mode'), _('Optional QMI, MBIM, or Quectel proxy mode.'));
 		o.value('', _('Disabled'));
 		o.value('qmi-proxy', _('libqmi proxy'));
 		o.value('mbim-proxy', _('libmbim proxy'));
@@ -371,7 +371,7 @@ return view.extend({
 		o.value('quectel-atc-proxy', _('Quectel ATC proxy'));
 		o.default = '';
 
-		o = section.taboption('advanced', form.ListValue, 'mux_id', _('MUX interface index'));
+		o = section.taboption('advanced', form.ListValue, 'mux_id', _('MUX interface index'), _('Optional multiplexed data channel index.'));
 		o.value('', _('Disabled'));
 		o.value('1', _('Index 1'));
 		o.value('2', _('Index 2'));
@@ -383,45 +383,45 @@ return view.extend({
 		o.value('8', _('Index 8'));
 		o.default = '';
 
-		o = section.taboption('advanced', form.Flag, 'no_dhcp', _('Use internal IP/DNS handling'));
+		o = section.taboption('advanced', form.Flag, 'no_dhcp', _('Use internal IP/DNS handling'), _('Let QTCM apply IP and DNS details instead of DHCP.'));
 		o.rmempty = false;
 
-		o = section.taboption('advanced', form.Flag, 'verbose', _('Verbose logging'));
+		o = section.taboption('advanced', form.Flag, 'verbose', _('Verbose logging'), _('Enable more detailed QTCM diagnostic logs.'));
 		o.rmempty = false;
 
-		o = section.taboption('advanced', form.Value, 'usbmon_log_file', _('USB monitor log file'));
+		o = section.taboption('advanced', form.Value, 'usbmon_log_file', _('USB monitor log file'), _('Path for optional USB monitor logging.'));
 		o.placeholder = '/tmp/quectel-usbmon.log';
 		o.optional = true;
 
 		var switchSection = map.section(form.NamedSection, 'sim_switch', 'sim_switch', _('SIM Switch Backend'));
 
-		o = switchSection.option(form.ListValue, 'mode', _('Switch mode'));
+		o = switchSection.option(form.ListValue, 'mode', _('Switch mode'), _('How this hardware changes between SIM slots.'));
 		o.value('gpio', _('External GPIO'));
 		o.value('module', _('Module AT command'));
 		o.value('none', _('None'));
 		o.default = 'gpio';
 
-		o = switchSection.option(form.Value, 'sim1_value', _('SIM 1 value'));
+		o = switchSection.option(form.Value, 'sim1_value', _('SIM 1 value'), _('GPIO value or module command value that selects SIM 1.'));
 		o.placeholder = '1';
 
-		o = switchSection.option(form.Value, 'sim2_value', _('SIM 2 value'));
+		o = switchSection.option(form.Value, 'sim2_value', _('SIM 2 value'), _('GPIO value or module command value that selects SIM 2.'));
 		o.placeholder = '0';
 
-		o = switchSection.option(form.Value, 'command', _('Module switch command'));
+		o = switchSection.option(form.Value, 'command', _('Module switch command'), _('AT command prefix used when switch mode is module.'));
 		o.placeholder = 'AT+QDSIM';
 		o.depends('mode', 'module');
 
-		o = switchSection.option(form.Flag, 'power_cycle_mpcie', _('Power-cycle mPCIe after switch'));
+		o = switchSection.option(form.Flag, 'power_cycle_mpcie', _('Power-cycle mPCIe after switch'), _('Toggle mPCIe power after changing SIM so the modem re-detects the slot.'));
 		o.rmempty = false;
 		o.default = '1';
 
 		if (!failoverEnabled()) {
-			o = section.taboption('advanced', form.ListValue, 'active_sim', _('Active SIM'));
+			o = section.taboption('advanced', form.ListValue, 'active_sim', _('Active SIM'), _('SIM selected when failover is disabled.'));
 			o.value('1', _('SIM 1'));
 			o.value('2', _('SIM 2'));
 			o.default = '1';
 		} else {
-			o = section.taboption('advanced', form.DummyValue, '_active_sim_failover', _('Active SIM'));
+			o = section.taboption('advanced', form.DummyValue, '_active_sim_failover', _('Active SIM'), _('Read-only while failover controls SIM selection.'));
 			o.rawhtml = true;
 			o.cfgvalue = function() {
 				return E('span', activeSimValue() == '2'

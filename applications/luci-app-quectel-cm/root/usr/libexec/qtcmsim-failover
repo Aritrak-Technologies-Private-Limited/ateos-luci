@@ -231,6 +231,24 @@ allowed_to_switch() {
 	[ "$elapsed" -ge "$wait" ]
 }
 
+post_switch_settling() {
+	local wait last elapsed
+
+	wait="$(cfg post_switch_settle_time 50)"
+	[ "$wait" -gt 0 ] 2>/dev/null || return 1
+
+	last="$(cat "$LAST_SWITCH_FILE" 2>/dev/null)"
+	[ -n "$last" ] || return 1
+
+	elapsed=$(($(now) - last))
+	if [ "$elapsed" -lt "$wait" ]; then
+		log "waiting for post-switch settle ${elapsed}/${wait}s before judging SIM"
+		return 0
+	fi
+
+	return 1
+}
+
 call_post_switch_hook() {
 	local new_sim="$1"
 	local old_sim="$2"
@@ -380,12 +398,18 @@ process_failure() {
 		return 0
 	fi
 
-	if sim_enabled "$target" && switch_to_sim "$target" "$sim" "$reason" "$iface" "$signal_dbm"; then
-		printf '%s\n' "$sim" > "$LAST_FAILED_SIM_FILE"
+	if sim_enabled "$target"; then
+		if switch_to_sim "$target" "$sim" "$reason" "$iface" "$signal_dbm" 1; then
+			printf '%s\n' "$sim" > "$LAST_FAILED_SIM_FILE"
+			return 0
+		fi
+
+		log "SIM $target is enabled but switch failed, sending '$event' to troubleshooter"
+		troubleshooter_event "${event:-post_failover_failure}" "$reason"
 		return 0
 	fi
 
-	log "SIM switch could not restore service path, sending '$event' to troubleshooter"
+	log "SIM $target is disabled, sending '$event' to troubleshooter"
 	troubleshooter_event "${event:-post_failover_failure}" "$reason"
 }
 
@@ -406,6 +430,10 @@ check_once() {
 	sim_status="$(printf '%s' "$json" | json_value sim_status)"
 	modem_source="$(printf '%s' "$json" | json_value modem_source)"
 	reason=""
+
+	if post_switch_settling; then
+		return 0
+	fi
 
 	if [ "$(tcfg check_modem_response 1)" = "1" ] && \
 		{ [ "$modem_source" = "No modem AT port detected" ] || [ "$sim_status" = "Unknown" ]; }; then
