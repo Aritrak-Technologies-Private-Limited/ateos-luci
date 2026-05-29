@@ -5,7 +5,8 @@
 			"file": {
 				"/bin/ping": [ "exec" ],
 				"/sbin/route": [ "exec" ],
-				"/usr/bin/gcom": [ "exec" ]
+				"/usr/bin/gcom": [ "exec" ],
+				"/usr/sbin/mwan3 status": [ "exec" ]
 			},
 			"ubus": {
 				"file": [ "exec" ],
