@@ -1,9 +1,10 @@
 -- Copyright 2008 Steven Barth <steven@midlink.org>
 -- Licensed to the public under the Apache License 2.0.
 
-local fs  = require "nixio.fs"
-local sys = require "luci.sys"
-local uci = require "luci.model.uci".cursor()
+local fs    = require "nixio.fs"
+local nixio = require "nixio"
+local sys   = require "luci.sys"
+local uci   = require "luci.model.uci".cursor()
 local testfullps = sys.exec("ps --help 2>&1 | grep BusyBox") --check which ps do we have
 local psstring = (string.len(testfullps)>0) and  "ps w" or  "ps axfw" --set command we use to get pid
 
@@ -39,6 +40,78 @@ function s.getPID(section) -- Universal function which returns valid pid # or ni
 	else
 		return nil
 	end
+end
+
+function s.getOvpnOption(section, option)
+	local val = uci:get("openvpn", section, option)
+	local file_cfg = uci:get("openvpn", section, "config")
+
+	if type(val) == "table" then
+		val = val[1]
+	end
+
+	if not val and file_cfg and fs.access(file_cfg) then
+		for line in io.lines(file_cfg) do
+			line = line:gsub("#.*$", ""):gsub(";.*$", "")
+			val = line:match("^%s*" .. option .. "%s+([^%s]+)")
+			if val then
+				break
+			end
+		end
+	end
+
+	return val
+end
+
+function s.tunnelInfo(section)
+	local dev = s.getOvpnOption(section, "dev")
+	local addrs = { }
+	local candidates = { }
+	local prefix
+
+	if dev then
+		if dev:match("^tun%d+$") or dev:match("^tap%d+$") then
+			candidates[dev] = true
+		elseif dev:match("^tun") then
+			prefix = "tun"
+		elseif dev:match("^tap") then
+			prefix = "tap"
+		elseif fs.access("/sys/class/net/" .. dev) then
+			candidates[dev] = true
+		end
+	else
+		prefix = "t[au][np]"
+	end
+
+	for _, ifaddr in ipairs(nixio.getifaddrs()) do
+		if ifaddr.name and (candidates[ifaddr.name] or (prefix and ifaddr.name:match("^" .. prefix .. "%d*$"))) then
+			candidates[ifaddr.name] = true
+			if (ifaddr.family == "inet" or ifaddr.family == "inet6") and ifaddr.addr then
+				addrs[#addrs + 1] = ifaddr.addr
+			end
+		end
+	end
+
+	return next(candidates) ~= nil, addrs
+end
+
+function s.formatTunnelAddrs(addrs)
+	if #addrs > 1 then
+		return "%s +%i" % { addrs[1], #addrs - 1 }
+	end
+	return addrs[1]
+end
+
+function s.connectionStatus(section)
+	local pid = s.getPID(section)
+	if pid ~= nil and sys.process.signal(pid, 0) then
+		local _, addrs = s.tunnelInfo(section)
+		if #addrs > 0 then
+			return translatef("connected (%i)", pid) .. ": " .. s.formatTunnelAddrs(addrs)
+		end
+		return translatef("started (%i)", pid) .. ": " .. translate("no VPN IP")
+	end
+	return translate("stopped")
 end
 
 function s.parse(self, section)
@@ -103,15 +176,9 @@ end
 
 s:option( Flag, "enabled", translate("Enabled") )
 
-local active = s:option( DummyValue, "_active", translate("Started") )
-function active.cfgvalue(self, section)
-	local pid = s.getPID(section)
-	if pid ~= nil then
-		return (sys.process.signal(pid, 0))
-			and translatef("yes (%i)", pid)
-			or  translate("no")
-	end
-	return translate("no")
+local connection = s:option( DummyValue, "_connection", translate("Connection") )
+function connection.cfgvalue(self, section)
+	return s.connectionStatus(section)
 end
 
 local updown = s:option( Button, "_updown", translate("Start/Stop") )
