@@ -127,7 +127,7 @@ function parseMwan3Status(stdout) {
 		}
 
 		if (section == 'rules4') {
-			m = /^\d+\s+\d+\s+\S+\s+(\S+)\s+/.exec(trimmed);
+			m = /^\S+\s+\S+\s+\S+\s+(\S+)\s+/.exec(trimmed);
 			if (m && trimmed.indexOf('0.0.0.0/0') != -1) {
 				policy = m[1];
 				break;
