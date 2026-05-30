@@ -52,13 +52,11 @@ function s.getPID(section) -- Universal function which returns valid pid # or ni
 	end
 
 	local file_cfg = uci:get("openvpn", section, "config")
-	local openvpn_pids = { }
 	for pid in fs.dir("/proc") do
 		if pid:match("^%d+$") then
 			local cmdline = fs.readfile("/proc/" .. pid .. "/cmdline")
 			if cmdline and cmdline:match("openvpn") then
 				cmdline = cmdline:gsub("%z", " ")
-				openvpn_pids[#openvpn_pids + 1] = tonumber(pid)
 				if cmdline:find("openvpn(" .. section .. ")", 1, true) or
 				   cmdline:find("/etc/openvpn/" .. section .. ".conf", 1, true) or
 				   cmdline:find("/etc/openvpn/" .. section .. ".ovpn", 1, true) or
@@ -73,19 +71,23 @@ function s.getPID(section) -- Universal function which returns valid pid # or ni
 		end
 	end
 
-	if #openvpn_pids == 1 then
-		local _, addrs = s.tunnelInfo(section)
-		if #addrs > 0 then
-			return s.validPID(openvpn_pids[1])
-		end
-	end
-
 	local pid = sys.exec("%s | grep -w '[o]penvpn(%s)'" % { psstring, section })
 	if pid and #pid > 0 then
 		return s.validPID(tonumber(pid:match("^%s*(%d+)")))
 	else
 		return nil
 	end
+end
+
+function s.processTunnelDevice(pid)
+	local log = sys.exec("logread | grep 'openvpn\\[%i\\]' | grep 'net_addr_.* dev '" % pid)
+	local dev
+
+	for line in log:gmatch("[^\r\n]+") do
+		dev = line:match(" dev ([^%s]+)")
+	end
+
+	return dev
 end
 
 function s.getOvpnOption(section, option)
@@ -109,11 +111,18 @@ function s.getOvpnOption(section, option)
 	return val
 end
 
-function s.tunnelInfo(section)
+function s.tunnelInfo(section, pid)
 	local dev = s.getOvpnOption(section, "dev")
 	local addrs = { }
 	local candidates = { }
 	local prefix
+
+	if pid then
+		local procdev = s.processTunnelDevice(pid)
+		if procdev then
+			dev = procdev
+		end
+	end
 
 	if dev then
 		if dev:match("^tun%d+$") or dev:match("^tap%d+$") then
@@ -151,7 +160,7 @@ end
 function s.connectionStatus(section)
 	local pid = s.getPID(section)
 	if pid ~= nil and sys.process.signal(pid, 0) then
-		local _, addrs = s.tunnelInfo(section)
+		local _, addrs = s.tunnelInfo(section, pid)
 		if #addrs > 0 then
 			return '<span style="white-space:nowrap"><span class="ifacebadge" style="background-color:#2e7d32;color:#fff">%s</span> <small>(%i)</small></span>' % {
 				xml.pcdata(translate("UP")),
@@ -162,11 +171,6 @@ function s.connectionStatus(section)
 			xml.pcdata(translate("WAIT")),
 			pid
 		}
-	end
-
-	local _, addrs = s.tunnelInfo(section)
-	if #addrs > 0 then
-		return '<span style="white-space:nowrap"><span class="ifacebadge" style="background-color:#2e7d32;color:#fff">%s</span></span>' % xml.pcdata(translate("UP"))
 	end
 
 	return '<span style="white-space:nowrap"><span class="ifacebadge" style="background-color:#777;color:#fff">%s</span></span>' % xml.pcdata(translate("DOWN"))
@@ -234,6 +238,11 @@ end
 
 s:option( Flag, "enabled", translate("Enabled") )
 
+local name = s:option( DummyValue, "_name", translate("Name") )
+function name.cfgvalue(self, section)
+	return section
+end
+
 local connection = s:option( DummyValue, "_connection", translate("Connection") )
 connection.rawhtml = true
 function connection.cfgvalue(self, section)
@@ -242,8 +251,12 @@ end
 
 local vpnip = s:option( DummyValue, "_vpnip", translate("VPN IP") )
 function vpnip.cfgvalue(self, section)
-	local _, addrs = s.tunnelInfo(section)
-	return (#addrs > 0) and s.formatTunnelAddrs(addrs) or "-"
+	local pid = s.getPID(section)
+	if pid ~= nil and sys.process.signal(pid, 0) then
+		local _, addrs = s.tunnelInfo(section, pid)
+		return (#addrs > 0) and s.formatTunnelAddrs(addrs) or "-"
+	end
+	return "-"
 end
 
 local updown = s:option( Button, "_updown", translate("Start/Stop") )
