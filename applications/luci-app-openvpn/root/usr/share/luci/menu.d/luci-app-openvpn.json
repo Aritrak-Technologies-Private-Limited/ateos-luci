@@ -1,0 +1,43 @@
+{
+	"admin/vpn/openvpn": {
+		"title": "OpenVPN",
+		"order": 80,
+		"action": {
+			"type": "cbi",
+			"path": "openvpn"
+		}
+	},
+
+	"admin/vpn/openvpn/basic/*": {
+		"action": {
+			"type": "cbi",
+			"path": "openvpn-basic"
+		},
+		"firstchild_ineligible": true
+	},
+
+	"admin/vpn/openvpn/advanced/*": {
+		"action": {
+			"type": "cbi",
+			"path": "openvpn-advanced"
+		},
+		"firstchild_ineligible": true
+	},
+
+	"admin/vpn/openvpn/file/*": {
+		"action": {
+			"type": "form",
+			"path": "openvpn-file"
+		},
+		"firstchild_ineligible": true
+	},
+
+	"admin/vpn/openvpn/upload": {
+		"action": {
+			"type": "call",
+			"module": "luci.controller.openvpn",
+			"function": "ovpn_upload"
+		},
+		"firstchild_ineligible": true
+	}
+}
