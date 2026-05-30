@@ -5,6 +5,7 @@ local fs    = require "nixio.fs"
 local nixio = require "nixio"
 local sys   = require "luci.sys"
 local uci   = require "luci.model.uci".cursor()
+local xml   = require "luci.xml"
 local testfullps = sys.exec("ps --help 2>&1 | grep BusyBox") --check which ps do we have
 local psstring = (string.len(testfullps)>0) and  "ps w" or  "ps axfw" --set command we use to get pid
 
@@ -33,10 +34,55 @@ uci:foreach( "openvpn_recipes", "openvpn_recipe",
 	end
 )
 
+function s.validPID(pid)
+	return pid and sys.process.signal(pid, 0) and pid or nil
+end
+
 function s.getPID(section) -- Universal function which returns valid pid # or nil
+	for _, pidfile in ipairs({
+		"/var/run/openvpn.%s.pid" % section,
+		"/var/run/openvpn_%s.pid" % section,
+		"/var/run/openvpn/%s.pid" % section
+	}) do
+		local pid = tonumber((fs.readfile(pidfile) or ""):match("(%d+)"))
+		pid = s.validPID(pid)
+		if pid then
+			return pid
+		end
+	end
+
+	local file_cfg = uci:get("openvpn", section, "config")
+	local openvpn_pids = { }
+	for pid in fs.dir("/proc") do
+		if pid:match("^%d+$") then
+			local cmdline = fs.readfile("/proc/" .. pid .. "/cmdline")
+			if cmdline and cmdline:match("openvpn") then
+				cmdline = cmdline:gsub("%z", " ")
+				openvpn_pids[#openvpn_pids + 1] = tonumber(pid)
+				if cmdline:find("openvpn(" .. section .. ")", 1, true) or
+				   cmdline:find("/etc/openvpn/" .. section .. ".conf", 1, true) or
+				   cmdline:find("/etc/openvpn/" .. section .. ".ovpn", 1, true) or
+				   (file_cfg and cmdline:find(file_cfg, 1, true))
+				then
+					pid = s.validPID(tonumber(pid))
+					if pid then
+						return pid
+					end
+				end
+			end
+		end
+	end
+
+	if #openvpn_pids == 1 then
+		local _, addrs = s.tunnelInfo(section)
+		if #addrs > 0 then
+			return s.validPID(openvpn_pids[1])
+		end
+	end
+
 	local pid = sys.exec("%s | grep -w '[o]penvpn(%s)'" % { psstring, section })
 	if pid and #pid > 0 then
-		return tonumber(pid:match("^%s*(%d+)"))
+		return s.validPID(tonumber(pid:match("^%s*(%d+)")))
 	else
 		return nil
 	end
@@ -107,11 +153,23 @@ function s.connectionStatus(section)
 	if pid ~= nil and sys.process.signal(pid, 0) then
 		local _, addrs = s.tunnelInfo(section)
 		if #addrs > 0 then
-			return translatef("connected (%i)", pid) .. ": " .. s.formatTunnelAddrs(addrs)
+			return '<span style="white-space:nowrap"><span class="ifacebadge" style="background-color:#2e7d32;color:#fff">%s</span> <small>(%i)</small></span>' % {
+				xml.pcdata(translate("UP")),
+				pid
+			}
 		end
-		return translatef("started (%i)", pid) .. ": " .. translate("no VPN IP")
+		return '<span style="white-space:nowrap"><span class="ifacebadge" style="background-color:#b26a00;color:#fff">%s</span> <small>(%i)</small></span>' % {
+			xml.pcdata(translate("WAIT")),
+			pid
+		}
 	end
-	return translate("stopped")
+
+	local _, addrs = s.tunnelInfo(section)
+	if #addrs > 0 then
+		return '<span style="white-space:nowrap"><span class="ifacebadge" style="background-color:#2e7d32;color:#fff">%s</span></span>' % xml.pcdata(translate("UP"))
+	end
+
+	return '<span style="white-space:nowrap"><span class="ifacebadge" style="background-color:#777;color:#fff">%s</span></span>' % xml.pcdata(translate("DOWN"))
 end
 
 function s.parse(self, section)
@@ -177,8 +235,15 @@ end
 s:option( Flag, "enabled", translate("Enabled") )
 
 local connection = s:option( DummyValue, "_connection", translate("Connection") )
+connection.rawhtml = true
 function connection.cfgvalue(self, section)
 	return s.connectionStatus(section)
+end
+
+local vpnip = s:option( DummyValue, "_vpnip", translate("VPN IP") )
+function vpnip.cfgvalue(self, section)
+	local _, addrs = s.tunnelInfo(section)
+	return (#addrs > 0) and s.formatTunnelAddrs(addrs) or "-"
 end
 
 local updown = s:option( Button, "_updown", translate("Start/Stop") )
