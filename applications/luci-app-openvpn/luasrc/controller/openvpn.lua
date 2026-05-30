@@ -5,11 +5,6 @@
 module("luci.controller.openvpn", package.seeall)
 
 function index()
-	entry( {"admin", "vpn", "openvpn"}, cbi("openvpn"), _("OpenVPN") ).acl_depends = { "luci-app-openvpn" }
-	entry( {"admin", "vpn", "openvpn", "basic"},    cbi("openvpn-basic"),    nil ).leaf = true
-	entry( {"admin", "vpn", "openvpn", "advanced"}, cbi("openvpn-advanced"), nil ).leaf = true
-	entry( {"admin", "vpn", "openvpn", "file"},     form("openvpn-file"),    nil ).leaf = true
-	entry( {"admin", "vpn", "openvpn", "upload"},   call("ovpn_upload"))
 end
 
 function ovpn_upload()
