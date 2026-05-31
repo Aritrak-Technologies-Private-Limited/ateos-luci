@@ -8,6 +8,7 @@
 				"/usr/sbin/swanmon list-sas": [ "exec" ],
 				"/usr/sbin/swanctl": [ "exec" ],
 				"/bin/mkdir": [ "exec" ],
+				"/etc/swanctl/conf.d": [ "list" ],
 				"/etc/swanctl/conf.d/*": [ "read" ]
 			},
 			"uci": [ "ipsec" ]
