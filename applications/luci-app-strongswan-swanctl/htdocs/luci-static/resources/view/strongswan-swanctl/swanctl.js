@@ -431,34 +431,35 @@ return view.extend({
 		o.depends('is_esp', '0');
 		addAlgorithms(o, strongswan_algorithms.getPrfAlgorithms());
 
-			let page = m.render();
-			// Create Basic / Advanced mode toggle
-			const basicDiv = E('div', { id: 'swanctl-basic-mode' }, [ page ]);
-			const advancedDiv = E('div', { id: 'swanctl-advanced-mode', style: 'display:none' }, [ this.renderRawConfiguration() ]);
+			return m.render().then(L.bind(function (page) {
+				// Create Basic / Advanced mode toggle
+				var basicDiv = E('div', { id: 'swanctl-basic-mode' }, [ page ]);
+				var advancedDiv = E('div', { id: 'swanctl-advanced-mode', style: 'display:none' }, [ this.renderRawConfiguration() ]);
 
-			const basicBtn = E('button', {
-				'class': 'cbi-button',
-				'click': function () {
-					basicDiv.style.display = 'block';
-					advancedDiv.style.display = 'none';
-					this.classList.add('cbi-button-primary');
-					if (advBtn) advBtn.classList.remove('cbi-button-primary');
-				}
-			}, [_('Basic Mode')]);
+				var basicBtn = E('button', {
+					'class': 'cbi-button cbi-button-primary',
+					'click': function () {
+						basicDiv.style.display = 'block';
+						advancedDiv.style.display = 'none';
+						this.classList.add('cbi-button-primary');
+						if (advBtn) advBtn.classList.remove('cbi-button-primary');
+					}
+				}, [_('Basic Mode')]);
 
-			const advBtn = E('button', {
-				'class': 'cbi-button cbi-button-primary',
-				'click': function () {
-					basicDiv.style.display = 'none';
-					advancedDiv.style.display = 'block';
-					this.classList.add('cbi-button-primary');
-					if (basicBtn) basicBtn.classList.remove('cbi-button-primary');
-				}
-			}, [_('Advanced Mode')]);
+				var advBtn = E('button', {
+					'class': 'cbi-button',
+					'click': function () {
+						basicDiv.style.display = 'none';
+						advancedDiv.style.display = 'block';
+						this.classList.add('cbi-button-primary');
+						if (basicBtn) basicBtn.classList.remove('cbi-button-primary');
+					}
+				}, [_('Advanced Mode')]);
 
-			const toggleBar = E('div', { 'class': 'cbi-value' }, [ basicBtn, E('span', { style: 'width:0.5em;display:inline-block' }), advBtn ]);
+				var toggleBar = E('div', { 'class': 'cbi-value' }, [ basicBtn, E('span', { style: 'width:0.5em;display:inline-block' }), advBtn ]);
 
-			return E('div', [ E('div', { 'class': 'cbi-section-node' }, [ toggleBar ]), basicDiv, advancedDiv ]);
+				return E('div', [ E('div', { 'class': 'cbi-section-node' }, [ toggleBar ]), basicDiv, advancedDiv ]);
+			}, this));
 		},
 
 	renderRawConfiguration: function () {
@@ -752,3 +753,5 @@ return view.extend({
 			])
 		]);
 	}
+
+});
