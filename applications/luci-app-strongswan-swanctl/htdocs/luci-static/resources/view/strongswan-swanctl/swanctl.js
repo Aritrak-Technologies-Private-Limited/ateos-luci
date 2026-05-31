@@ -466,6 +466,7 @@ return view.extend({
 		const rawEditorId = 'swanctl-raw-configuration';
 		const rawPathId = 'swanctl-raw-config-path';
 		const rawChildId = 'swanctl-raw-child';
+		const rawStatusId = 'swanctl-raw-status';
 
 		const sanitizeConnectionName = function (name) {
 			return name.trim()
@@ -480,10 +481,95 @@ return view.extend({
 			document.getElementById(rawPathId).textContent = pathText;
 		};
 
+		const setStatusText = function (message, status) {
+			const statusNode = document.getElementById(rawStatusId);
+			if (!statusNode) return;
+			statusNode.textContent = message;
+			statusNode.style.color = status === 'connected' ? '#2a7f2a' : status === 'error' ? '#a00' : '#444';
+		};
+
+		const getConnectionStatus = function () {
+			const connectionName = document.getElementById(rawNameId).value.trim();
+			const sanitized = sanitizeConnectionName(connectionName);
+
+			if (!connectionName) {
+				setStatusText(_('Connection name is required for status.'), 'error');
+				return Promise.resolve({ connected: false, message: _('Connection name is required.') });
+			}
+
+			return fs.exec_direct('/usr/sbin/swanmon', ['list-sas'], 'json')
+				.then(function (reply) {
+					const sas = reply.data || [];
+					const matches = sas.filter(function (conn) {
+						const name = Object.keys(conn)[0];
+						const data = conn[name];
+						if (name === sanitized || name === connectionName) {
+							return true;
+						}
+						return Object.keys(data['child-sas'] || {}).some(function (child) {
+							return child === sanitized || child === connectionName;
+						});
+					});
+
+					if (!matches.length) {
+						setStatusText(_('Not connected'), 'disconnected');
+						return { connected: false, message: _('Not connected') };
+					}
+
+					const states = matches.map(function (conn) {
+						const name = Object.keys(conn)[0];
+						return conn[name].state || _('Unknown');
+					});
+					const message = _('Connected (%s)').format(states.join(', '));
+					setStatusText(message, 'connected');
+					return { connected: true, message: message };
+				})
+				.catch(function (err) {
+					setStatusText(_('Status unavailable: %s').format(err.message || String(err)), 'error');
+					throw err;
+				});
+		};
+
+		const sanitizeChildName = function (name) {
+			return name.trim()
+				.replace(/[^a-zA-Z0-9_.-]/g, '_')
+				.replace(/^[-_.]+|[-_.]+$/g, '');
+		};
+
 		const showResult = function (title, message, success) {
 			ui.addNotification(title,
 				E('pre', { 'style': 'white-space: pre-wrap; overflow-x: auto; max-height: 280px;' }, message || _('No output.')),
 				success ? 'positive' : 'negative');
+		};
+
+		const validateRawConfig = function (config) {
+			const trimmed = config.trim();
+			if (!trimmed) {
+				return _('Configuration cannot be empty.');
+			}
+
+			const hasBlock = /\b(connections|secrets|include)\b/i.test(trimmed);
+			if (!hasBlock) {
+				return _('Configuration should contain at least one swanctl block like connections, secrets or include.');
+			}
+
+			const opens = (trimmed.match(/\{/g) || []).length;
+			const closes = (trimmed.match(/\}/g) || []).length;
+			if (opens !== closes) {
+				return _('The configuration contains mismatched braces.');
+			}
+
+			return true;
+		};
+
+		const confirmOverwriteIfExists = function (path) {
+			return fs.stat(path)
+				.then(function () {
+					return confirm(_('A configuration file already exists at %s. Overwrite it?').format(path));
+				})
+				.catch(function () {
+					return true;
+				});
 		};
 
 		const saveRawConfig = function () {
@@ -499,13 +585,20 @@ return view.extend({
 				return alert(_('Connection Name contains invalid characters. Use letters, digits, dot, underscore or hyphen.'));
 			}
 
-			if (!rawValue) {
-				return alert(_('Configuration cannot be empty.'));
+			const validation = validateRawConfig(rawValue);
+			if (validation !== true) {
+				return alert(validation);
 			}
 
 			const path = '/etc/swanctl/conf.d/' + sanitized + '.conf';
 			return fs.exec('/bin/mkdir', ['-p', '/etc/swanctl/conf.d'])
 				.then(function () {
+					return confirmOverwriteIfExists(path);
+				})
+				.then(function (overwrite) {
+					if (!overwrite) {
+						throw new Error(_('Save canceled by user.'));
+					}
 					return fs.write(path, rawValue, 0o644);
 				})
 				.then(function () {
@@ -514,14 +607,25 @@ return view.extend({
 				.then(function () {
 					updateConfigPath();
 					showResult(_('Saved'), _('Raw strongSwan configuration saved to %s').format(path), true);
+					return getConnectionStatus();
 				})
 				.catch(function (err) {
+					if (err && err.message === _('Save canceled by user.')) {
+						return;
+					}
 					showResult(_('Save failed'), err.message || String(err), false);
 				});
 		};
 
 		const connectRawConfig = function () {
-			const child = (document.getElementById(rawChildId) || { value: '' }).value.trim();
+			const rawChild = (document.getElementById(rawChildId) || { value: '' }).value;
+			const child = sanitizeChildName(rawChild);
+			if (rawChild.trim() && !child) {
+				return alert(_('Child name contains invalid characters. Use letters, digits, dot, underscore or hyphen.'));
+			}
+			if (rawChild.trim() && child !== rawChild.trim()) {
+				return alert(_('Child name contains invalid characters. Use letters, digits, dot, underscore or hyphen.'));
+			}
 			return fs.exec('/usr/sbin/swanctl', ['--load-all'])
 				.then(function () {
 					if (child) return fs.exec('/usr/sbin/swanctl', ['--initiate', '--child', child]);
@@ -532,6 +636,7 @@ return view.extend({
 						showResult(_('Connect'), _('Initiated child %s').format(child), true);
 					else
 						showResult(_('Connect'), _('All configured strongSwan connections have been initiated.'), true);
+					return getConnectionStatus();
 				})
 				.catch(function (err) {
 					showResult(_('Connect failed'), err.message || String(err), false);
@@ -539,11 +644,19 @@ return view.extend({
 		};
 
 		const disconnectRawConfig = function () {
-			const child = (document.getElementById(rawChildId) || { value: '' }).value.trim();
+			const rawChild = (document.getElementById(rawChildId) || { value: '' }).value;
+			const child = sanitizeChildName(rawChild);
+			if (rawChild.trim() && !child) {
+				return alert(_('Child name contains invalid characters. Use letters, digits, dot, underscore or hyphen.'));
+			}
+			if (rawChild.trim() && child !== rawChild.trim()) {
+				return alert(_('Child name contains invalid characters. Use letters, digits, dot, underscore or hyphen.'));
+			}
 			if (child) {
 				return fs.exec('/usr/sbin/swanctl', ['--terminate', '--child', child])
 					.then(function () {
 						showResult(_('Disconnect'), _('Terminated child %s').format(child), true);
+						return getConnectionStatus();
 					})
 					.catch(function (err) {
 						showResult(_('Disconnect failed'), err.message || String(err), false);
@@ -553,6 +666,7 @@ return view.extend({
 			return fs.exec('/usr/sbin/swanctl', ['--terminate', '--all'])
 				.then(function () {
 					showResult(_('Disconnect'), _('All strongSwan connections have been terminated.'), true);
+					return getConnectionStatus();
 				})
 				.catch(function (err) {
 					showResult(_('Disconnect failed'), err.message || String(err), false);
@@ -560,9 +674,9 @@ return view.extend({
 		};
 
 		const statusRawConfig = function () {
-			return fs.exec('/usr/sbin/swanctl', ['--list-sas'])
-				.then(function (reply) {
-					showResult(_('Status'), reply.stdout || _('No active SAs were returned.'), true);
+			return getConnectionStatus()
+				.then(function (status) {
+					showResult(_('Status'), status.message, true);
 				})
 				.catch(function (err) {
 					showResult(_('Status failed'), err.message || String(err), false);
@@ -608,6 +722,10 @@ return view.extend({
 					E('div', { 'class': 'cbi-value' }, [
 						E('span', { 'class': 'cbi-value-title' }, [_('Target file')]),
 						E('div', { id: rawPathId, 'class': 'cbi-value-field' }, [_('Connection name is required to build the filename')])
+					]),
+					E('div', { 'class': 'cbi-value' }, [
+						E('span', { 'class': 'cbi-value-title' }, [_('Connection Status')]),
+						E('div', { id: rawStatusId, 'class': 'cbi-value-field' }, [_('Unknown. Click Status to refresh.')])
 					]),
 					E('div', { 'class': 'cbi-value' }, [
 						E('button', {
