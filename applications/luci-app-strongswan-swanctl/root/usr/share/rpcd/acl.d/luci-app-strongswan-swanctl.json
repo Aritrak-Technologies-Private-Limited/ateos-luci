@@ -5,12 +5,18 @@
 			"file": {
 				"/usr/sbin/swanmon version": [ "exec" ],
 				"/usr/sbin/swanmon stats": [ "exec" ],
-				"/usr/sbin/swanmon list-sas": [ "exec" ]
+				"/usr/sbin/swanmon list-sas": [ "exec" ],
+				"/usr/sbin/swanctl": [ "exec" ],
+				"/bin/mkdir": [ "exec" ],
+				"/etc/swanctl/conf.d/*": [ "read" ]
 			},
 			"uci": [ "ipsec" ]
 		},
 		"write": {
-			"uci": [ "ipsec" ]
+			"uci": [ "ipsec" ],
+			"file": {
+				"/etc/swanctl/conf.d/*": [ "read", "write" ]
+			}
 		}
 	}
 }
