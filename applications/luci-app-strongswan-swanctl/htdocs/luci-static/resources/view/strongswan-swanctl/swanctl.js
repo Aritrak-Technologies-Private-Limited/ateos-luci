@@ -3,6 +3,7 @@
 'require form';
 'require uci';
 'require ui';
+'require fs';
 'require tools.widgets as widgets';
 'require strongswan_algorithms';
 
@@ -430,6 +431,206 @@ return view.extend({
 		o.depends('is_esp', '0');
 		addAlgorithms(o, strongswan_algorithms.getPrfAlgorithms());
 
-		return m.render();
+			let page = m.render();
+			// Create Basic / Advanced mode toggle
+			const basicDiv = E('div', { id: 'swanctl-basic-mode' }, [ page ]);
+			const advancedDiv = E('div', { id: 'swanctl-advanced-mode', style: 'display:none' }, [ this.renderRawConfiguration() ]);
+
+			const basicBtn = E('button', {
+				'class': 'cbi-button',
+				'click': function () {
+					basicDiv.style.display = 'block';
+					advancedDiv.style.display = 'none';
+					this.classList.add('cbi-button-primary');
+					if (advBtn) advBtn.classList.remove('cbi-button-primary');
+				}
+			}, [_('Basic Mode')]);
+
+			const advBtn = E('button', {
+				'class': 'cbi-button cbi-button-primary',
+				'click': function () {
+					basicDiv.style.display = 'none';
+					advancedDiv.style.display = 'block';
+					this.classList.add('cbi-button-primary');
+					if (basicBtn) basicBtn.classList.remove('cbi-button-primary');
+				}
+			}, [_('Advanced Mode')]);
+
+			const toggleBar = E('div', { 'class': 'cbi-value' }, [ basicBtn, E('span', { style: 'width:0.5em;display:inline-block' }), advBtn ]);
+
+			return E('div', [ E('div', { 'class': 'cbi-section-node' }, [ toggleBar ]), basicDiv, advancedDiv ]);
+		},
+
+	renderRawConfiguration: function () {
+		const rawNameId = 'swanctl-raw-connection-name';
+		const rawEditorId = 'swanctl-raw-configuration';
+		const rawPathId = 'swanctl-raw-config-path';
+		const rawChildId = 'swanctl-raw-child';
+
+		const sanitizeConnectionName = function (name) {
+			return name.trim()
+				.replace(/[^a-zA-Z0-9_.-]/g, '_')
+				.replace(/^[-_.]+|[-_.]+$/g, '');
+		};
+
+		const updateConfigPath = function () {
+			const name = document.getElementById(rawNameId).value || '';
+			const sanitized = sanitizeConnectionName(name);
+			const pathText = sanitized ? '/etc/swanctl/conf.d/' + sanitized + '.conf' : _('Connection name is required to build the filename');
+			document.getElementById(rawPathId).textContent = pathText;
+		};
+
+		const showResult = function (title, message, success) {
+			ui.addNotification(title,
+				E('pre', { 'style': 'white-space: pre-wrap; overflow-x: auto; max-height: 280px;' }, message || _('No output.')),
+				success ? 'positive' : 'negative');
+		};
+
+		const saveRawConfig = function () {
+			const connectionName = document.getElementById(rawNameId).value.trim();
+			const rawValue = document.getElementById(rawEditorId).value;
+			const sanitized = sanitizeConnectionName(connectionName);
+
+			if (!connectionName) {
+				return alert(_('Connection Name cannot be empty.'));
+			}
+
+			if (!sanitized) {
+				return alert(_('Connection Name contains invalid characters. Use letters, digits, dot, underscore or hyphen.'));
+			}
+
+			if (!rawValue) {
+				return alert(_('Configuration cannot be empty.'));
+			}
+
+			const path = '/etc/swanctl/conf.d/' + sanitized + '.conf';
+			return fs.exec('/bin/mkdir', ['-p', '/etc/swanctl/conf.d'])
+				.then(function () {
+					return fs.write(path, rawValue, 0o644);
+				})
+				.then(function () {
+					return fs.exec('/usr/sbin/swanctl', ['--load-all']);
+				})
+				.then(function () {
+					updateConfigPath();
+					showResult(_('Saved'), _('Raw strongSwan configuration saved to %s').format(path), true);
+				})
+				.catch(function (err) {
+					showResult(_('Save failed'), err.message || String(err), false);
+				});
+		};
+
+		const connectRawConfig = function () {
+			const child = (document.getElementById(rawChildId) || { value: '' }).value.trim();
+			return fs.exec('/usr/sbin/swanctl', ['--load-all'])
+				.then(function () {
+					if (child) return fs.exec('/usr/sbin/swanctl', ['--initiate', '--child', child]);
+					return fs.exec('/usr/sbin/swanctl', ['--initiate', '--all']);
+				})
+				.then(function () {
+					if (child)
+						showResult(_('Connect'), _('Initiated child %s').format(child), true);
+					else
+						showResult(_('Connect'), _('All configured strongSwan connections have been initiated.'), true);
+				})
+				.catch(function (err) {
+					showResult(_('Connect failed'), err.message || String(err), false);
+				});
+		};
+
+		const disconnectRawConfig = function () {
+			const child = (document.getElementById(rawChildId) || { value: '' }).value.trim();
+			if (child) {
+				return fs.exec('/usr/sbin/swanctl', ['--terminate', '--child', child])
+					.then(function () {
+						showResult(_('Disconnect'), _('Terminated child %s').format(child), true);
+					})
+					.catch(function (err) {
+						showResult(_('Disconnect failed'), err.message || String(err), false);
+					});
+			}
+
+			return fs.exec('/usr/sbin/swanctl', ['--terminate', '--all'])
+				.then(function () {
+					showResult(_('Disconnect'), _('All strongSwan connections have been terminated.'), true);
+				})
+				.catch(function (err) {
+					showResult(_('Disconnect failed'), err.message || String(err), false);
+				});
+		};
+
+		const statusRawConfig = function () {
+			return fs.exec('/usr/sbin/swanctl', ['--list-sas'])
+				.then(function (reply) {
+					showResult(_('Status'), reply.stdout || _('No active SAs were returned.'), true);
+				})
+				.catch(function (err) {
+					showResult(_('Status failed'), err.message || String(err), false);
+				});
+		};
+
+		return E('div', { 'class': 'cbi-map' }, [
+			E('div', { 'class': 'cbi-section' }, [
+				E('h2', { 'class': 'cbi-section-title' }, [_('Raw Configuration')]),
+				E('p', { 'class': 'cbi-section-desc' }, [_('Paste a swanctl.conf fragment and save it directly to /etc/swanctl/conf.d/. You can then reload, connect, or disconnect from this UI.')]),
+				E('div', { 'class': 'cbi-section-node' }, [
+					E('div', { 'class': 'cbi-value' }, [
+						E('label', { 'class': 'cbi-value-title', 'for': rawNameId }, [_('Connection Name')]),
+						E('input', {
+							id: rawNameId,
+							type: 'text',
+							'class': 'cbi-input-text',
+							autocomplete: 'off',
+							placeholder: _('AWS-Test'),
+							input: updateConfigPath,
+							change: updateConfigPath
+						})
+					]),
+					E('div', { 'class': 'cbi-value' }, [
+						E('label', { 'class': 'cbi-value-title', 'for': rawEditorId }, [_('Configuration')]),
+						E('textarea', {
+							id: rawEditorId,
+							'class': 'cbi-textarea',
+							rows: 20,
+							placeholder: _('paste swanctl.conf fragment here')
+						})
+					]),
+					E('div', { 'class': 'cbi-value' }, [
+						E('label', { 'class': 'cbi-value-title', 'for': rawChildId }, [_('Child (optional)')]),
+						E('input', {
+							id: rawChildId,
+							type: 'text',
+							'class': 'cbi-input-text',
+							autocomplete: 'off',
+							placeholder: _('child name to initiate/terminate')
+						})
+					]),
+					E('div', { 'class': 'cbi-value' }, [
+						E('span', { 'class': 'cbi-value-title' }, [_('Target file')]),
+						E('div', { id: rawPathId, 'class': 'cbi-value-field' }, [_('Connection name is required to build the filename')])
+					]),
+					E('div', { 'class': 'cbi-value' }, [
+						E('button', {
+							'class': 'cbi-button cbi-button-positive',
+							click: saveRawConfig
+						}, [_('Save')]),
+						E('button', {
+							'class': 'cbi-button cbi-button-primary',
+							click: connectRawConfig,
+							style: 'margin-left: 0.5em;'
+						}, [_('Connect')]),
+						E('button', {
+							'class': 'cbi-button cbi-button-negative',
+							click: disconnectRawConfig,
+							style: 'margin-left: 0.5em;'
+						}, [_('Disconnect')]),
+						E('button', {
+							'class': 'cbi-button cbi-button-secondary',
+							click: statusRawConfig,
+							style: 'margin-left: 0.5em;'
+						}, [_('Status')])
+					])
+				])
+			])
+		]);
 	}
-});

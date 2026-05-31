@@ -5,6 +5,7 @@ local fs    = require "nixio.fs"
 local nixio = require "nixio"
 local sys   = require "luci.sys"
 local uci   = require "luci.model.uci".cursor()
+local util  = require "luci.util"
 local xml   = require "luci.xml"
 local testfullps = sys.exec("ps --help 2>&1 | grep BusyBox") --check which ps do we have
 local psstring = (string.len(testfullps)>0) and  "ps w" or  "ps axfw" --set command we use to get pid
@@ -276,9 +277,9 @@ function updown.cfgvalue(self, section)
 end
 function updown.write(self, section, value)
 	if self.option == "stop" then
-		sys.call("/etc/init.d/openvpn stop %s" % section)
+		sys.call("/etc/init.d/openvpn stop %s" % util.shellquote(section))
 	else
-		sys.call("/etc/init.d/openvpn start %s" % section)
+		sys.call("/etc/init.d/openvpn start %s" % util.shellquote(section))
 	end
 	luci.http.redirect( self.redirect )
 end
