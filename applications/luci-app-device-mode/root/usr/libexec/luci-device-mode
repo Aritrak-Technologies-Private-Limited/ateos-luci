@@ -405,6 +405,21 @@ apply_router() {
 	setup_ap
 }
 
+apply_ap() {
+	delete_our_wifi
+	disable_wifi_ifaces
+	disable_wan
+	disable_lan_dhcp
+
+	if [ "$(get dumb_lan_proto static)" = "dhcp" ]; then
+		setup_lan_dhcp_client
+	else
+		setup_lan_static
+	fi
+
+	setup_ap
+}
+
 apply_wireless_client() {
 	delete_our_wifi
 	disable_wifi_ifaces
@@ -453,6 +468,9 @@ apply_mode() {
 	backup_configs
 
 	case "$mode" in
+		ap)
+			apply_ap
+			;;
 		router)
 			apply_router
 			;;
