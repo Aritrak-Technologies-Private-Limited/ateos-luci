@@ -178,6 +178,27 @@ list_wifi_radios() {
 	done
 }
 
+is_ignored_netdev() {
+	case "$1" in
+		lo|wmaster*|wifi*|hwsim*|imq*|ifb*|mon.wlan*|sit*|gre*|gretap*|ip6gre*|ip6tnl*|tunl*)
+			return 0
+			;;
+	esac
+
+	return 1
+}
+
+list_netdevs() {
+	local dev
+
+	for dev in /sys/class/net/*; do
+		[ -e "$dev" ] || continue
+		dev="${dev##*/}"
+		is_ignored_netdev "$dev" && continue
+		printf '%s\n' "$dev"
+	done
+}
+
 first_wifi_iface() {
 	local mode="$1"
 
@@ -466,11 +487,14 @@ case "${1:-}" in
 	radios)
 		list_wifi_radios
 		;;
+	netdevs)
+		list_netdevs
+		;;
 	apply)
 		apply_mode
 		;;
 	*)
-		echo "Usage: $0 init|radios|apply" >&2
+		echo "Usage: $0 init|radios|netdevs|apply" >&2
 		exit 1
 		;;
 esac

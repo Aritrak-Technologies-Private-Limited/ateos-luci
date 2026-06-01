@@ -1,7 +1,6 @@
 'use strict';
 'require fs';
 'require form';
-'require network';
 'require ui';
 'require uci';
 'require view';
@@ -50,6 +49,19 @@ function parseRadioInfo(res) {
 	});
 
 	return radios;
+}
+
+function parseLineList(res) {
+	var values = [];
+
+	((res && res.stdout) || '').trim().split(/\n/).forEach(function(line) {
+		line = line.trim();
+
+		if (line)
+			values.push(line);
+	});
+
+	return values;
 }
 
 function radioLabel(name, radios) {
@@ -105,17 +117,16 @@ return view.extend({
 				uci.load('device_mode'),
 				uci.load('network'),
 				uci.load('wireless').catch(function() { return null; }),
-				network.getWifiDevices(),
-				network.getDevices(),
-				fs.exec('/usr/libexec/luci-device-mode', [ 'radios' ]).catch(function() { return null; })
+				fs.exec('/usr/libexec/luci-device-mode', [ 'radios' ]).catch(function() { return null; }),
+				fs.exec('/usr/libexec/luci-device-mode', [ 'netdevs' ]).catch(function() { return null; })
 			]);
 		});
 	},
 
 	render: function(data) {
-		var wifiDevices = data[3] || [],
-		    netDevices = data[4] || [],
-		    radioInfo = parseRadioInfo(data[5]),
+		var radioInfo = parseRadioInfo(data[3]),
+		    radioNames = Object.keys(radioInfo),
+		    netDevices = parseLineList(data[4]),
 		    currentMode = uci.get('device_mode', 'main', 'mode') || 'router',
 		    currentAp = firstWifiIface(function(s) { return s.mode == 'ap' && L.toArray(s.network).indexOf('lan') > -1; }),
 		    currentSta = firstWifiIface(function(s) { return s.mode == 'sta'; }),
@@ -190,10 +201,8 @@ return view.extend({
 			return fallback('lan_ifname', defaultLanDevice);
 		};
 		o.rmempty = true;
-		netDevices.forEach(function(dev) {
-			var name = dev.getName();
-			if (name)
-				o.value(name);
+		netDevices.forEach(function(name) {
+			o.value(name);
 		});
 
 		o = s.taboption('advanced', form.Value, 'wan_ifname', _('WAN device'));
@@ -202,10 +211,8 @@ return view.extend({
 			return fallback('wan_ifname', defaultWanDevice);
 		};
 		o.rmempty = true;
-		netDevices.forEach(function(dev) {
-			var name = dev.getName();
-			if (name)
-				o.value(name);
+		netDevices.forEach(function(name) {
+			o.value(name);
 		});
 		o.depends('mode', 'router');
 
@@ -215,8 +222,7 @@ return view.extend({
 			return defaultRadio;
 		};
 		o.value('', _('Auto'));
-		wifiDevices.forEach(function(radio) {
-			var name = radio.getName();
+		radioNames.forEach(function(name) {
 			o.value(name, radioLabel(name, radioInfo));
 		});
 		o.depends('mode', 'wireless_client');
