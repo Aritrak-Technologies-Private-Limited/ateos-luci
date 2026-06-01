@@ -55,6 +55,129 @@ first_wifi_radio() {
 	uci -q show wireless | sed -n "s/^\(wireless\.[^.]*\)=wifi-device$/\1/p" | sed -n 's/^wireless\.//p' | sed -n '1p'
 }
 
+wifi_radio_sections() {
+	uci -q show wireless | sed -n "s/^\(wireless\.[^.]*\)=wifi-device$/\1/p" | sed -n 's/^wireless\.//p'
+}
+
+wifi_radio_phy() {
+	local radio="$1"
+	local phy path devpath phydev
+
+	phy="$(uci -q get "wireless.$radio.phy" 2>/dev/null || true)"
+	[ -n "$phy" ] && {
+		printf '%s' "$phy"
+		return
+	}
+
+	case "$radio" in
+		phy*)
+			[ -d "/sys/class/ieee80211/$radio" ] && {
+				printf '%s' "$radio"
+				return
+			}
+			;;
+	esac
+
+	path="$(uci -q get "wireless.$radio.path" 2>/dev/null || true)"
+	[ -n "$path" ] || return 0
+
+	for phydev in /sys/class/ieee80211/*; do
+		[ -e "$phydev" ] || continue
+		devpath="$(readlink -f "$phydev/device" 2>/dev/null || true)"
+		case "$devpath" in
+			*"$path"*)
+				printf '%s' "${phydev##*/}"
+				return
+				;;
+		esac
+	done
+}
+
+wifi_radio_band() {
+	local radio="$1"
+	local band hwmode channel phy freqs
+
+	band="$(uci -q get "wireless.$radio.band" 2>/dev/null || true)"
+	case "$band" in
+		2g|5g|6g|60g)
+			printf '%s' "$band"
+			return
+			;;
+	esac
+
+	hwmode="$(uci -q get "wireless.$radio.hwmode" 2>/dev/null || true)"
+	case "$hwmode" in
+		*11a*|*a)
+			printf '5g'
+			return
+			;;
+		*11b*|*11g*|*b|*g)
+			printf '2g'
+			return
+			;;
+	esac
+
+	channel="$(uci -q get "wireless.$radio.channel" 2>/dev/null || true)"
+	case "$channel" in
+		''|auto) ;;
+		*[!0-9]*) ;;
+		*)
+			if [ "$channel" -ge 1 ] && [ "$channel" -le 14 ]; then
+				printf '2g'
+				return
+			fi
+
+			if [ "$channel" -ge 32 ] && [ "$channel" -le 177 ]; then
+				printf '5g'
+				return
+			fi
+			;;
+	esac
+
+	if command -v iwinfo >/dev/null 2>&1; then
+		freqs="$(iwinfo "$radio" freqlist 2>/dev/null || true)"
+		echo "$freqs" | grep -Eq '(^|[^0-9])(59|6[0-9]{2,})[0-9][0-9]? MHz|6\.[0-9]+ GHz' && {
+			printf '6g'
+			return
+		}
+		echo "$freqs" | grep -Eq '(^|[^0-9])5[0-9]{3} MHz|5\.[0-9]+ GHz' && {
+			printf '5g'
+			return
+		}
+		echo "$freqs" | grep -Eq '(^|[^0-9])2[0-9]{3} MHz|2\.[0-9]+ GHz' && {
+			printf '2g'
+			return
+		}
+	fi
+
+	phy="$(wifi_radio_phy "$radio")"
+	if [ -n "$phy" ] && command -v iw >/dev/null 2>&1; then
+		freqs="$(iw phy "$phy" info 2>/dev/null || true)"
+		echo "$freqs" | grep -Eq '59[0-9][0-9] MHz|6[0-9]{3} MHz' && {
+			printf '6g'
+			return
+		}
+		echo "$freqs" | grep -Eq '5[0-9]{3} MHz' && {
+			printf '5g'
+			return
+		}
+		echo "$freqs" | grep -Eq '2[0-9]{3} MHz' && {
+			printf '2g'
+			return
+		}
+	fi
+
+	printf 'unknown'
+}
+
+list_wifi_radios() {
+	local radio
+
+	for radio in $(wifi_radio_sections); do
+		printf '%s\t%s\t%s\n' "$radio" "$(wifi_radio_band "$radio")" "$(wifi_radio_phy "$radio")"
+	done
+}
+
 first_wifi_iface() {
 	local mode="$1"
 
@@ -328,7 +451,7 @@ apply_mode() {
 	esac
 
 	uci -q commit network
-	uci -q commit wireless
+	[ ! -f /etc/config/wireless ] || uci -q commit wireless
 	uci -q commit dhcp
 	uci -q commit firewall
 	restart_network
@@ -340,11 +463,14 @@ case "${1:-}" in
 	init)
 		ensure_config
 		;;
+	radios)
+		list_wifi_radios
+		;;
 	apply)
 		apply_mode
 		;;
 	*)
-		echo "Usage: $0 init|apply" >&2
+		echo "Usage: $0 init|radios|apply" >&2
 		exit 1
 		;;
 esac
