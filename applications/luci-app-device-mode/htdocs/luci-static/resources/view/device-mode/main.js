@@ -22,6 +22,52 @@ function deviceModeValue(option) {
 	return (value != null && value !== '') ? value : null;
 }
 
+function bandLabel(band) {
+	var labels = {
+		'2g': _('2.4 GHz'),
+		'5g': _('5 GHz'),
+		'6g': _('6 GHz'),
+		'60g': _('60 GHz')
+	};
+
+	return labels[band] || _('unknown band');
+}
+
+function parseRadioInfo(res) {
+	var radios = {};
+
+	((res && res.stdout) || '').trim().split(/\n/).forEach(function(line) {
+		var fields = line.split(/\t/),
+		    name = fields[0];
+
+		if (!name)
+			return;
+
+		radios[name] = {
+			band: fields[1] || 'unknown',
+			phy: fields[2] || ''
+		};
+	});
+
+	return radios;
+}
+
+function radioLabel(name, radios) {
+	var info = radios[name],
+	    parts = [];
+
+	if (!info)
+		return name;
+
+	if (info.band)
+		parts.push(bandLabel(info.band));
+
+	if (info.phy)
+		parts.push(info.phy);
+
+	return parts.length ? '%s (%s)'.format(name, parts.join(', ')) : name;
+}
+
 function firstWifiIface(match) {
 	var sections = uci.sections('wireless', 'wifi-iface');
 
@@ -58,9 +104,10 @@ return view.extend({
 			return Promise.all([
 				uci.load('device_mode'),
 				uci.load('network'),
-				uci.load('wireless'),
+				uci.load('wireless').catch(function() { return null; }),
 				network.getWifiDevices(),
-				network.getDevices()
+				network.getDevices(),
+				fs.exec('/usr/libexec/luci-device-mode', [ 'radios' ]).catch(function() { return null; })
 			]);
 		});
 	},
@@ -68,6 +115,7 @@ return view.extend({
 	render: function(data) {
 		var wifiDevices = data[3] || [],
 		    netDevices = data[4] || [],
+		    radioInfo = parseRadioInfo(data[5]),
 		    currentMode = uci.get('device_mode', 'main', 'mode') || 'router',
 		    currentAp = firstWifiIface(function(s) { return s.mode == 'ap' && L.toArray(s.network).indexOf('lan') > -1; }),
 		    currentSta = firstWifiIface(function(s) { return s.mode == 'sta'; }),
@@ -168,7 +216,8 @@ return view.extend({
 		};
 		o.value('', _('Auto'));
 		wifiDevices.forEach(function(radio) {
-			o.value(radio.getName(), radio.getName());
+			var name = radio.getName();
+			o.value(name, radioLabel(name, radioInfo));
 		});
 		o.depends('mode', 'wireless_client');
 		o.depends('mode', 'wifi_repeater');
