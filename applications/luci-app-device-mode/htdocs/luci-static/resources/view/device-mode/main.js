@@ -21,6 +21,13 @@ function deviceModeValue(option) {
 	return (value != null && value !== '') ? value : null;
 }
 
+function loadConfig(config) {
+	return uci.load(config).catch(function() {
+		uci.state.values[config] = {};
+		return null;
+	});
+}
+
 function bandLabel(band) {
 	var labels = {
 		'2g': _('2.4 GHz'),
@@ -114,9 +121,10 @@ return view.extend({
 			uci.unload('device_mode');
 
 			return Promise.all([
-				uci.load('device_mode'),
-				uci.load('network'),
-				uci.load('wireless').catch(function() { return null; }),
+				loadConfig('device_mode'),
+				loadConfig('network'),
+				loadConfig('wireless'),
+				loadConfig('luci'),
 				fs.exec('/usr/libexec/luci-device-mode', [ 'radios' ]).catch(function() { return null; }),
 				fs.exec('/usr/libexec/luci-device-mode', [ 'netdevs' ]).catch(function() { return null; })
 			]);
@@ -124,9 +132,9 @@ return view.extend({
 	},
 
 	render: function(data) {
-		var radioInfo = parseRadioInfo(data[3]),
+		var radioInfo = parseRadioInfo(data[4]),
 		    radioNames = Object.keys(radioInfo),
-		    netDevices = parseLineList(data[4]),
+		    netDevices = parseLineList(data[5]),
 		    currentMode = uci.get('device_mode', 'main', 'mode') || 'router',
 		    currentAp = firstWifiIface(function(s) { return s.mode == 'ap' && L.toArray(s.network).indexOf('lan') > -1; }),
 		    currentSta = firstWifiIface(function(s) { return s.mode == 'sta'; }),
