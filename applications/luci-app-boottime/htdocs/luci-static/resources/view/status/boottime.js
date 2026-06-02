@@ -40,13 +40,13 @@ function escapeRegExp(s) {
 	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function lineTime(line, lastKernelTime) {
+function lineTime(line) {
 	const m = line.match(/\[\s*([0-9]+(?:\.[0-9]+)?)\]/);
 
 	if (m)
 		return +m[1];
 
-	return lastKernelTime;
+	return null;
 }
 
 function wallClock(line) {
@@ -99,7 +99,6 @@ function categorize(line) {
 function parseLogs(syslog, dmesg, services) {
 	const seen = {};
 	const lines = [];
-	let lastKernelTime = null;
 
 	for (const line of (syslog + '\n' + dmesg).split(/\n/)) {
 		const text = line.trim();
@@ -109,14 +108,9 @@ function parseLogs(syslog, dmesg, services) {
 
 		seen[text] = true;
 
-		const directKernel = text.match(/\[\s*([0-9]+(?:\.[0-9]+)?)\]/);
-
-		if (directKernel)
-			lastKernelTime = +directKernel[1];
-
 		lines.push({
 			text,
-			time: lineTime(text, lastKernelTime),
+			time: lineTime(text),
 			wall: wallClock(text),
 			category: categorize(text)
 		});
@@ -125,9 +119,12 @@ function parseLogs(syslog, dmesg, services) {
 	const milestones = [];
 
 	for (const milestone of MILESTONES) {
-		const entry = lines.find(function(line) {
+		const matches = lines.filter(function(line) {
 			return milestone.re.test(line.text);
 		});
+		const entry = matches.find(function(line) {
+			return line.time != null;
+		}) || matches[0];
 
 		if (entry)
 			milestones.push({
@@ -157,6 +154,9 @@ function parseLogs(syslog, dmesg, services) {
 		const first = lines.find(function(line) {
 			return nameRe.test(line.text) || rcRe.test(line.text);
 		});
+		const firstTimed = lines.find(function(line) {
+			return line.time != null && (nameRe.test(line.text) || rcRe.test(line.text));
+		});
 		const problemCount = lines.filter(function(line) {
 			return (nameRe.test(line.text) || rcRe.test(line.text)) && CATEGORY_RULES[7].re.test(line.text);
 		}).length;
@@ -165,23 +165,13 @@ function parseLogs(syslog, dmesg, services) {
 			rc: service.rc,
 			name: service.name,
 			order: service.order,
-			time: first ? first.time : null,
+			time: firstTimed ? firstTimed.time : null,
 			wall: first ? first.wall : '-',
 			duration: profile[service.rc],
 			problemCount,
 			line: first ? first.text : ''
 		};
 	});
-
-	const observed = serviceRows.filter(function(row) {
-		return row.time != null;
-	}).sort(function(a, b) {
-		return a.time - b.time;
-	});
-
-	for (let i = 0; i < observed.length; i++)
-		if (observed[i].duration == null && observed[i + 1])
-			observed[i].gap = Math.max(0, observed[i + 1].time - observed[i].time);
 
 	const categories = CATEGORY_RULES.map(function(rule) {
 		const categoryLines = lines.filter(function(line) {
@@ -208,10 +198,26 @@ function parseLogs(syslog, dmesg, services) {
 	const issues = lines.filter(function(line) {
 		return CATEGORY_RULES[7].re.test(line.text);
 	}).slice(0, 80);
+	const timedMilestones = milestones.filter(function(row) {
+		return row.time != null;
+	});
+	const gaps = [];
+
+	for (let i = 1; i < timedMilestones.length; i++)
+		gaps.push({
+			from: timedMilestones[i - 1],
+			to: timedMilestones[i],
+			duration: timedMilestones[i].time - timedMilestones[i - 1].time
+		});
+
+	gaps.sort(function(a, b) {
+		return b.duration - a.duration;
+	});
 
 	return {
 		lines,
 		milestones,
+		gaps,
 		services: serviceRows,
 		categories,
 		issues
@@ -238,10 +244,7 @@ function statusBadge(text, type) {
 }
 
 function serviceDuration(row) {
-	if (row.duration != null)
-		return row.duration;
-
-	return row.gap;
+	return row.duration;
 }
 
 return view.extend({
@@ -258,36 +261,37 @@ return view.extend({
 		const dmesg = data[1] || '';
 		const services = parseRcList(data[2] || '');
 		const parsed = parseLogs(syslog, dmesg, services);
-		const bootComplete = parsed.milestones.find(function(row) {
-			return row.name === _('Init complete');
-		}) || parsed.milestones[parsed.milestones.length - 1];
 		const profiled = parsed.services.filter(function(row) {
 			return row.duration != null;
 		}).length;
 		const slowServices = parsed.services.filter(function(row) {
-			return serviceDuration(row) != null;
+			return row.duration != null;
 		}).sort(function(a, b) {
 			return serviceDuration(b) - serviceDuration(a);
 		}).slice(0, 8);
+		const timedMilestones = parsed.milestones.filter(function(row) {
+			return row.time != null;
+		});
+		const latestTimed = timedMilestones[timedMilestones.length - 1];
 
 		return E([], [
 			E('h2', _('Boot Time')),
 			E('div', { 'class': 'cbi-map-descr' },
-				_('This page extracts boot milestones, groups log messages by subsystem, and correlates startup services with the first matching boot log entry. Exact service duration is shown when BOOTPROFILE log entries are present.')),
+				_('This page extracts boot milestones, groups log messages by subsystem, and correlates startup services with boot log evidence. Durations are calculated only from kernel [seconds] timestamps or explicit BOOTPROFILE entries; wall-clock-only log lines are never used for boot duration math.')),
 
 			E('div', {
 				'style': 'display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:.75rem;margin:1rem 0'
 			}, [
 				E('div', { 'class': 'cbi-section', 'style': 'margin:0;padding:.75rem' }, [
-					E('strong', _('Init complete')),
-					E('div', { 'style': 'font-size:1.6rem;margin-top:.35rem' }, fmtSeconds(bootComplete ? bootComplete.time : null))
+					E('strong', _('Latest timed milestone')),
+					E('div', { 'style': 'font-size:1.6rem;margin-top:.35rem' }, fmtSeconds(latestTimed ? latestTimed.time : null))
 				]),
 				E('div', { 'class': 'cbi-section', 'style': 'margin:0;padding:.75rem' }, [
 					E('strong', _('Startup services')),
 					E('div', { 'style': 'font-size:1.6rem;margin-top:.35rem' }, '%d'.format(services.length))
 				]),
 				E('div', { 'class': 'cbi-section', 'style': 'margin:0;padding:.75rem' }, [
-					E('strong', _('Profiled services')),
+					E('strong', _('BOOTPROFILE services')),
 					E('div', { 'style': 'font-size:1.6rem;margin-top:.35rem' }, '%d'.format(profiled))
 				]),
 				E('div', { 'class': 'cbi-section', 'style': 'margin:0;padding:.75rem' }, [
@@ -306,11 +310,26 @@ return view.extend({
 				return [ fmtSeconds(row.time), row.wall, row.name, shortLine(row.line) ];
 			}), _('No boot milestones found in the current logs.')),
 
-			E('h3', _('Slowest startup apps')),
+			E('h3', _('Largest boot gaps')),
+			table([
+				_('Gap'),
+				_('From'),
+				_('To'),
+				_('Evidence')
+			], parsed.gaps.slice(0, 8).map(function(row) {
+				return [
+					fmtSeconds(row.duration),
+					'%s (%s)'.format(row.from.name, fmtSeconds(row.from.time)),
+					'%s (%s)'.format(row.to.name, fmtSeconds(row.to.time)),
+					shortLine(row.to.line)
+				];
+			}), _('No timed milestone gaps found.')),
+
+			E('h3', _('Profiled startup durations')),
 			table([
 				_('RC script'),
 				_('App'),
-				_('Time'),
+				_('Duration'),
 				_('Source'),
 				_('Issues')
 			], slowServices.map(function(row) {
@@ -318,12 +337,12 @@ return view.extend({
 					row.rc,
 					row.name,
 					fmtSeconds(serviceDuration(row)),
-					row.duration != null ? _('BOOTPROFILE') : _('gap until next observed service'),
+					_('BOOTPROFILE'),
 					row.problemCount ? statusBadge('%d'.format(row.problemCount), 'bad') : '-'
 				];
-			}), _('No startup timing hints found.')),
+			}), _('No BOOTPROFILE service duration entries found.')),
 
-			E('h3', _('Startup app timing')),
+			E('h3', _('Startup app evidence')),
 			table([
 				_('RC script'),
 				_('App'),
@@ -332,15 +351,11 @@ return view.extend({
 				_('Issues'),
 				_('Evidence')
 			], parsed.services.map(function(row) {
-				const duration = row.duration != null
-					? fmtSeconds(row.duration)
-					: (row.gap != null ? _('next log gap: %s').format(fmtSeconds(row.gap)) : '-');
-
 				return [
 					row.rc,
 					row.name,
 					fmtSeconds(row.time),
-					duration,
+					row.duration != null ? fmtSeconds(row.duration) : '-',
 					row.problemCount ? statusBadge('%d'.format(row.problemCount), 'bad') : '-',
 					shortLine(row.line)
 				];
