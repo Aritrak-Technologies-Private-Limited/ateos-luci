@@ -1,0 +1,15 @@
+{
+	"luci-app-boottime": {
+		"description": "Grant read-only access to boot logs and startup service list",
+		"read": {
+			"file": {
+				"/bin/dmesg -r": [ "exec" ],
+				"/bin/ls /etc/rc.d": [ "exec" ],
+				"/sbin/logread": [ "exec" ]
+			},
+			"ubus": {
+				"file": [ "exec" ]
+			}
+		}
+	}
+}
