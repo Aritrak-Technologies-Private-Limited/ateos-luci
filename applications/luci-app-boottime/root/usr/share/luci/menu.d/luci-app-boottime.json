@@ -1,0 +1,13 @@
+{
+	"admin/status/boottime": {
+		"title": "Boot Time",
+		"order": 5,
+		"action": {
+			"type": "view",
+			"path": "status/boottime"
+		},
+		"depends": {
+			"acl": [ "luci-app-boottime" ]
+		}
+	}
+}
