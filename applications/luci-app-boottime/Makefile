@@ -6,7 +6,7 @@
 include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=LuCI boot time analyzer
-LUCI_DEPENDS:=+luci-base
+LUCI_DEPENDS:=+luci-base +rpcd-mod-file
 
 PKG_LICENSE:=GPL-2.0-only
 PKG_MAINTAINER:=Shiva Aradi <developer.aradi@gmail.com>
