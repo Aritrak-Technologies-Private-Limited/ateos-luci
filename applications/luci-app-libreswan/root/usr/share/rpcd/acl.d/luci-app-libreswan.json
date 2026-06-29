@@ -1,14 +1,37 @@
 {
-	"luci-app-libreswan" : {
-		"description" : "Grant access to LuCI app Libreswan IPSec",
-		"read" : {
-			"ubus" : {
-				"libreswan" : [ "*" ]
+	"luci-app-libreswan": {
+		"description": "Grant access to LuCI app Libreswan IPSec",
+		"read": {
+			"ubus": {
+				"libreswan": [
+					"*"
+				]
 			},
-			"uci": [ "libreswan" ]
+			"uci": [
+				"libreswan"
+			],
+			"file": {
+				"/etc/ipsec.d": [
+					"list"
+				],
+				"/etc/ipsec.d/luci-*.conf": [
+					"read"
+				]
+			}
 		},
-		"write" : {
-			"uci": [ "libreswan" ]
+		"write": {
+			"uci": [
+				"libreswan"
+			],
+			"file": {
+				"/etc/ipsec.d/luci-*.conf": [
+					"read",
+					"write"
+				],
+				"/usr/sbin/ipsec": [
+					"exec"
+				]
+			}
 		}
 	}
 }
