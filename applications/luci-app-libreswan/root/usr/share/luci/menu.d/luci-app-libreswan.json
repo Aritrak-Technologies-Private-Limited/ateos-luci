@@ -6,7 +6,14 @@
 			"type": "firstchild"
 		}
 	},
-
+	"admin/vpn/libreswan/config": {
+		"title": "Configuration",
+		"order": 5,
+		"action": {
+			"type": "view",
+			"path": "libreswan/config"
+		}
+	},
 	"admin/vpn/libreswan/overview": {
 		"title": "Overview",
 		"order": 10,
@@ -15,7 +22,6 @@
 			"path": "libreswan/overview"
 		}
 	},
-
 	"admin/vpn/libreswan/globals": {
 		"title": "IPSec Globals",
 		"order": 20,
@@ -24,7 +30,6 @@
 			"path": "libreswan/globals"
 		}
 	},
-
 	"admin/vpn/libreswan/proposals": {
 		"title": "IPSec Proposals",
 		"order": 30,
@@ -33,7 +38,6 @@
 			"path": "libreswan/proposals"
 		}
 	},
-
 	"admin/vpn/libreswan/tunnels": {
 		"title": "IPSec Tunnels",
 		"order": 40,
