@@ -8,13 +8,18 @@ opengt
     send "AT+CMEE=2^m"
     waitfor 5 "OK","ERROR"
     send "AT+CPIN?^m"
-    waitfor 5 "+CPIN: READY","+CPIN: SIM PIN","+CPIN: SIM PUK","+CME ERROR: SIM not inserted","ERROR"
+    # Bare "ERROR" must be anchored with ^m: waitfor matches on every byte, so
+    # an unanchored "ERROR" fires on "+CME ERROR" before the reason arrives.
+    waitfor 5 "+CPIN: READY","+CPIN: SIM PIN","+CPIN: SIM PUK","SIM not inserted","SIM failure","+CME ERROR: 10^m","+CME ERROR: 13^m","ERROR^m"
     if % = -1 goto error
     if % = 0 goto ready
     if % = 1 goto getpin
     if % = 2 goto getpuk
     if % = 3 goto nosim
-    if % = 4 goto error
+    if % = 4 goto nosim
+    if % = 5 goto nosim
+    if % = 6 goto nosim
+    if % = 7 goto error
 :error
     print $s," ***SIM ERROR***\n"
     print "Check device port configuration.\n"

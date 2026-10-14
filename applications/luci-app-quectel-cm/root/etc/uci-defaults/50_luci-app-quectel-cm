@@ -82,6 +82,7 @@ set_default qtcm.failover.enable_primary_failback '0'
 set_default qtcm.failover.primary_retry_interval '300'
 set_default qtcm.failover.primary_retry_settle_time '60'
 set_default qtcm.failover.primary_retry_check_internet '1'
+set_default qtcm.failover.no_sim_retry_interval '300'
 
 uci -q get qtcm.troubleshoot >/dev/null || uci -q set qtcm.troubleshoot='troubleshoot'
 set_default qtcm.troubleshoot.check_sim_error '1'

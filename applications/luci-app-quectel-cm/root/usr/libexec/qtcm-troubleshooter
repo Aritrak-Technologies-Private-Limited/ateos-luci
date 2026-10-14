@@ -162,6 +162,14 @@ handle_event() {
 	local key count_file step_file count threshold threshold_option step action settle
 
 	[ -n "$event" ] || return 1
+
+	# No recovery action can fix a missing SIM; never restart, power-cycle
+	# or reboot for it.
+	[ "$event" = "sim_error" ] && {
+		log "event 'sim_error' ignored: waiting for SIM${detail:+: $detail}"
+		return 0
+	}
+
 	check_enabled "$event" || {
 		log "event '$event' ignored because check is disabled"
 		return 0

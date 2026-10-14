@@ -7,6 +7,7 @@ LOSS_SINCE_FILE="$STATE_DIR/loss_since"
 USAGE_FILE="$STATE_DIR/usage"
 LAST_PRIMARY_RETRY_FILE="$STATE_DIR/last_primary_retry"
 LAST_FAILED_SIM_FILE="$STATE_DIR/last_failed_sim"
+NO_SIM_SINCE_FILE="$STATE_DIR/no_sim_since"
 TROUBLESHOOTER="/usr/libexec/qtcm-troubleshooter"
 
 log() {
@@ -381,6 +382,46 @@ handle_network_loss_reboot() {
 	fi
 }
 
+# A missing SIM cannot be fixed by restarting qtcm, power-cycling the modem
+# or rebooting, so sim_error never reaches the troubleshooter: just wait.
+# With both SIMs enabled, the other slot is retried every no_sim_retry_interval
+# seconds so a SIM inserted later is still picked up.
+escalate() {
+	local event="$1"
+	local reason="$2"
+	local target="$3"
+	local since interval
+
+	if [ "$event" != "sim_error" ]; then
+		rm -f "$NO_SIM_SINCE_FILE"
+		troubleshooter_event "${event:-post_failover_failure}" "$reason"
+		return 0
+	fi
+
+	since="$(cat "$NO_SIM_SINCE_FILE" 2>/dev/null)"
+	if [ -z "$since" ]; then
+		log "no SIM available ($reason), waiting for SIM; no recovery actions"
+		printf '%s\n' "$(now)" > "$NO_SIM_SINCE_FILE"
+		return 0
+	fi
+
+	interval="$(cfg no_sim_retry_interval 300)"
+	[ "$interval" -gt 0 ] 2>/dev/null || return 0
+	sim_enabled "$target" || return 0
+
+	if [ $(($(now) - since)) -ge "$interval" ]; then
+		log "still no SIM after ${interval}s, will retry SIM $target"
+		rm -f "$LAST_FAILED_SIM_FILE" "$NO_SIM_SINCE_FILE"
+	fi
+}
+
+# Like log, but stay quiet while already waiting for a SIM.
+failure_log() {
+	[ "$1" = "sim_error" ] && [ -f "$NO_SIM_SINCE_FILE" ] && return 0
+	shift
+	log "$*"
+}
+
 process_failure() {
 	local sim="$1"
 	local target="$2"
@@ -393,8 +434,8 @@ process_failure() {
 	last_failed_sim="$(cat "$LAST_FAILED_SIM_FILE" 2>/dev/null)"
 
 	if [ -n "$last_failed_sim" ] && [ "$last_failed_sim" != "$sim" ]; then
-		log "SIM $sim failed after SIM $last_failed_sim already failed, sending '$event' to troubleshooter"
-		troubleshooter_event "${event:-post_failover_failure}" "$reason"
+		failure_log "$event" "SIM $sim failed after SIM $last_failed_sim already failed, escalating '$event'"
+		escalate "$event" "$reason" "$target"
 		return 0
 	fi
 
@@ -404,13 +445,13 @@ process_failure() {
 			return 0
 		fi
 
-		log "SIM $target is enabled but switch failed, sending '$event' to troubleshooter"
-		troubleshooter_event "${event:-post_failover_failure}" "$reason"
+		failure_log "$event" "SIM $target is enabled but switch failed, escalating '$event'"
+		escalate "$event" "$reason" "$target"
 		return 0
 	fi
 
-	log "SIM $target is disabled, sending '$event' to troubleshooter"
-	troubleshooter_event "${event:-post_failover_failure}" "$reason"
+	failure_log "$event" "SIM $target is disabled, escalating '$event'"
+	escalate "$event" "$reason" "$target"
 }
 
 check_once() {
@@ -521,7 +562,9 @@ check_once() {
 		done
 	fi
 
-	if [ "$failed" = "0" ] && [ "$network_status" = "No" ]; then
+	if [ "$failure_event" = "sim_error" ]; then
+		handle_network_loss_reboot 0
+	elif [ "$failed" = "0" ] && [ "$network_status" = "No" ]; then
 		handle_network_loss_reboot 1
 	else
 		handle_network_loss_reboot "$failed"
@@ -531,6 +574,8 @@ check_once() {
 		process_failure "$sim" "$target" "$reason" "$failure_event" "$iface" "$signal_dbm"
 	else
 		rm -f "$LAST_FAILED_SIM_FILE"
+		[ -f "$NO_SIM_SINCE_FILE" ] && log "SIM $sim available again"
+		rm -f "$NO_SIM_SINCE_FILE"
 		troubleshooter_reset
 		maybe_try_primary_sim
 	fi
